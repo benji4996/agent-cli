@@ -1,0 +1,28 @@
+Paradex hybrid 5-minute validation
+=================================
+
+Branch: paradex-live-validation
+Base code before run: 51465cc
+Config: configs/paradex_sol_avellaneda_autobump_hybrid.yaml
+Run log: reports/paradex-hybrid-5min-51465cc.log
+
+Summary
+- runtime_s: 300
+- ticks: 71
+- orders_placed: 101
+- orders_filled: 25
+- pnl_usd: -0.05
+- trade_log_lines: 26
+- loss_events: 2
+- cooldown_events: 0
+- reduce_ticks: 42
+- autobump_events: 101
+- position_limit_warnings: 42
+- size_errors: 0
+- shutdown_flat: True
+
+Notes
+- The run accumulated a short inventory bias and repeatedly hit the position limit / REDUCE path.
+- No zero-size submission errors were observed in this run.
+- Shutdown flattening succeeded after attempt 1.
+- Post-run exchange check showed SOL-USD-PERP status CLOSED with size 0 and open_orders 0.

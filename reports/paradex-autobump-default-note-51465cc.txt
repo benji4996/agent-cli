@@ -1,0 +1,31 @@
+Paradex autobump default note
+============================
+
+Date: 2026-04-13
+Branch: paradex-live-validation
+Base commit before note: 51465cc
+
+Summary
+- Promoted configs/paradex_sol_avellaneda_autobump_hybrid.yaml to the new default alias:
+  configs/paradex_sol_avellaneda_autobump.yaml
+- Added a finer-grained comparison config between hybrid and makerish:
+  configs/paradex_sol_avellaneda_autobump_midpoint.yaml
+
+Intent
+- Default autobump profile should favor some live fills without the heavier churn of the more aggressive IOC tuning.
+- Midpoint profile provides another A/B point between:
+  - hybrid IOC autobump
+  - makerish GTC autobump
+
+Config choices
+- default autobump alias mirrors the hybrid profile
+- midpoint remains IOC, but nudges risk/quote parameters toward makerish:
+  - gamma: 0.0135
+  - k: 22.5
+  - max_inventory: 0.33
+  - min_spread_bps: 1.35
+  - max_spread_bps: 5.5
+
+Expected use
+- Use configs/paradex_sol_avellaneda_autobump.yaml as the primary Paradex autobump config for short live validation.
+- Use configs/paradex_sol_avellaneda_autobump_midpoint.yaml for finer A/B tuning against hybrid and makerish.
