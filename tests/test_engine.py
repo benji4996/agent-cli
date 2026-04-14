@@ -237,6 +237,27 @@ class TestPreflightCheck:
         assert engine._estimate_account_balance(engine.hl.get_account_state()) == pytest.approx(487.48)
         engine._preflight_check()
 
+    def test_sync_positions_from_exchange_imports_existing_position(self):
+        engine = _make_engine()
+        engine.dry_run = False
+        engine.instrument = "SOL-USD-PERP"
+        engine.hl.get_account_state = lambda: {
+            "positions": [
+                {
+                    "market": "SOL-USD-PERP",
+                    "size": "-0.45",
+                    "average_entry_price": "86.26766811",
+                    "realized_positional_pnl": "0.01604256",
+                    "realized_positional_funding_pnl": "0.00012353",
+                }
+            ]
+        }
+        engine._sync_positions_from_exchange()
+        pos = engine.position_tracker.get_agent_position("test_stub", "SOL-USD-PERP")
+        assert pos.net_qty == Decimal("-0.45")
+        assert pos.avg_entry_price == Decimal("86.26766811")
+        assert pos.realized_pnl == Decimal("0.01616609")
+
     def test_preflight_handles_failure(self):
         engine = _make_engine()
         engine.dry_run = False
@@ -283,4 +304,34 @@ class TestShutdownClose:
         engine._close_all_positions()
         pos = engine.position_tracker.get_agent_position("test_stub", "ETH-PERP")
         # After close, net position should be zero
+        assert pos.net_qty == Decimal("0")
+
+    def test_shutdown_close_can_reconcile_via_exchange_fill_collector(self):
+        hl = MockHL()
+        hl.place_order = lambda *args, **kwargs: None
+        collector_calls = {"n": 0}
+        def collect_new_fills(instrument=""):
+            collector_calls["n"] += 1
+            if collector_calls["n"] == 1:
+                return [
+                    type("Fill", (), {
+                        "oid": "shutdown-fill",
+                        "instrument": instrument,
+                        "side": "buy",
+                        "price": 2501.0,
+                        "quantity": 1.0,
+                        "timestamp_ms": 123,
+                        "fee": 0.0,
+                    })()
+                ]
+            return []
+        hl.collect_new_fills = collect_new_fills
+        hl.get_account_state = lambda: {"positions": []}
+        engine = TradingEngine(
+            hl=hl, strategy=StubStrategy(), instrument="ETH-PERP",
+            tick_interval=0, dry_run=False, data_dir=tempfile.mkdtemp(),
+        )
+        engine.position_tracker.apply_fill("test_stub", "ETH-PERP", "sell", Decimal("1"), Decimal("2500"))
+        engine._close_all_positions()
+        pos = engine.position_tracker.get_agent_position("test_stub", "ETH-PERP")
         assert pos.net_qty == Decimal("0")

@@ -33,6 +33,8 @@ class ParadexVenueAdapter(VenueAdapter):
 
     def __init__(self, proxy: ParadexProxy):
         self._proxy = proxy
+        self._seen_fill_ids: set[str] = set()
+        self._fills_initialized = False
 
     def connect(self, private_key: str, testnet: bool = True) -> None:
         self._proxy.connect()
@@ -97,28 +99,51 @@ class ParadexVenueAdapter(VenueAdapter):
         tif: str = "Ioc",
         builder: Optional[dict] = None,
     ) -> Optional[Fill]:
+        metadata = self._proxy.get_market_metadata(instrument)
         order = {
             "symbol": instrument,
             "side": side.upper(),
-            "size": size,
-            "price": price,
+            "size": self._quantize_size(size, metadata),
+            "price": self._quantize_price(price, metadata),
             "time_in_force": tif.upper(),
         }
         if builder:
             log.debug("Ignoring builder fee payload for Paradex order: %s", builder)
-        result = self._proxy.submit_order(order)
-        if not result:
-            return None
-        fill_like = {
-            "id": result.get("id") or result.get("order_id") or result.get("client_id") or "",
-            "symbol": result.get("symbol") or instrument,
-            "side": result.get("side") or side,
-            "price": result.get("avg_price") or result.get("price") or price,
-            "size": result.get("filled_size") or result.get("size") or size,
-            "timestamp_ms": result.get("timestamp_ms") or result.get("timestamp") or int(time.time() * 1000),
-            "fee": result.get("fee") or 0.0,
-        }
-        return _paradex_fill_to_fill(self._proxy.record_fill(fill_like))
+        self._proxy.submit_order(order)
+        return None
+
+    def collect_new_fills(self, instrument: str = "") -> List[Fill]:
+        instrument_upper = instrument.upper() if instrument else ""
+        fresh: List[Fill] = []
+        raw_fills = self._proxy.fetch_fills()
+        chronological = sorted(raw_fills, key=lambda fill: int(fill.get("created_at") or fill.get("timestamp") or 0))
+        if not self._fills_initialized:
+            for raw in chronological:
+                fill_id = str(raw.get("id") or raw.get("fill_id") or "")
+                if fill_id:
+                    self._seen_fill_ids.add(fill_id)
+            self._fills_initialized = True
+            return []
+        for raw in chronological:
+            fill_id = str(raw.get("id") or raw.get("fill_id") or "")
+            if not fill_id or fill_id in self._seen_fill_ids:
+                continue
+            symbol = str(raw.get("market") or raw.get("symbol") or raw.get("instrument") or "")
+            if instrument_upper and symbol.upper() != instrument_upper:
+                continue
+            self._seen_fill_ids.add(fill_id)
+            fresh.append(
+                Fill(
+                    oid=fill_id,
+                    instrument=symbol,
+                    side=str(raw.get("side") or "").lower(),
+                    price=float(raw.get("price") or 0.0),
+                    quantity=float(raw.get("size") or raw.get("qty") or raw.get("quantity") or 0.0),
+                    timestamp_ms=int(raw.get("created_at") or raw.get("timestamp_ms") or raw.get("timestamp") or int(time.time() * 1000)),
+                    fee=float(raw.get("fee") or 0.0),
+                )
+            )
+        return fresh
 
     def cancel_order(self, instrument: str, oid: str) -> bool:
         result = self._proxy.cancel_order(oid)
@@ -153,3 +178,19 @@ class ParadexVenueAdapter(VenueAdapter):
             except (TypeError, ValueError):
                 continue
         return 0.0
+
+    @staticmethod
+    def _quantize_price(price: float, metadata: Dict[str, object]) -> float:
+        tick = ParadexVenueAdapter._coerce_float(metadata, "price_tick_size", "tick_size")
+        if tick <= 0:
+            return price
+        steps = round(price / tick)
+        return round(steps * tick, 12)
+
+    @staticmethod
+    def _quantize_size(size: float, metadata: Dict[str, object]) -> float:
+        increment = ParadexVenueAdapter._coerce_float(metadata, "order_size_increment", "size_increment")
+        if increment <= 0:
+            return size
+        steps = round(size / increment)
+        return round(steps * increment, 12)

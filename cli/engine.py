@@ -98,6 +98,7 @@ class TradingEngine:
         # Preflight: warn if account has no funds
         if not self.dry_run:
             self._preflight_check()
+            self._sync_positions_from_exchange()
 
         mode = "DRY RUN" if self.dry_run else "LIVE"
         log.info("Engine started: strategy=%s instrument=%s tick=%.1fs mode=%s leverage=%sx",
@@ -231,26 +232,10 @@ class TradingEngine:
         fills = self.order_manager.update(valid_decisions, snapshot)
 
         # 7. Apply fills to position tracker
-        for fill in fills:
-            fill_qty = Decimal(str(fill.quantity))
-            fill_price = Decimal(str(fill.price))
-            self.position_tracker.apply_fill(
-                agent_id, self.instrument, str(fill.side).lower(),
-                fill_qty, fill_price,
-            )
-            self.trade_log.append({
-                "tick": self.tick_count,
-                "oid": fill.oid,
-                "instrument": fill.instrument,
-                "side": str(fill.side).lower(),
-                "price": str(fill_price),
-                "quantity": str(fill_qty),
-                "timestamp_ms": fill.timestamp_ms,
-                "fee": str(fill.fee),
-                "strategy": self.strategy.strategy_id,
-            })
+        self._apply_fills(fills)
 
-            # Record fill for markout tracking
+        # Record fills for markout tracking
+        for fill in fills:
             if self.markout_tracker is not None:
                 h_tox = 0.0
                 detector_scores = {}
@@ -347,6 +332,31 @@ class TradingEngine:
                 self.guard_bridge.mark_closed(snapshot.mid_price, result.reason)
                 self._running = False
 
+    def _apply_fills(self, fills, meta: str | None = None) -> None:
+        agent_id = self.strategy.strategy_id
+        for fill in fills:
+            fill_qty = Decimal(str(fill.quantity))
+            fill_price = Decimal(str(fill.price))
+            fill_side = str(fill.side).lower()
+            self.position_tracker.apply_fill(
+                agent_id, self.instrument, fill_side,
+                fill_qty, fill_price,
+            )
+            record = {
+                "tick": self.tick_count,
+                "oid": fill.oid,
+                "instrument": fill.instrument,
+                "side": fill_side,
+                "price": str(fill_price),
+                "quantity": str(fill_qty),
+                "timestamp_ms": fill.timestamp_ms,
+                "fee": str(fill.fee),
+                "strategy": self.strategy.strategy_id,
+            }
+            if meta:
+                record["meta"] = meta
+            self.trade_log.append(record)
+
     def _guard_close_position(self, snapshot: MarketSnapshot) -> None:
         """Close position when Guard trailing stop triggers."""
         agent_id = self.strategy.strategy_id
@@ -431,52 +441,56 @@ class TradingEngine:
             return
 
         close_side = "sell" if pos.net_qty > ZERO else "buy"
-        size = float(abs(pos.net_qty))
-
-        try:
-            snapshot = self.hl.get_snapshot(self.instrument)
-            if close_side == "sell":
-                price = round(float(snapshot.bid) * 0.995, 6)
-            else:
-                price = round(float(snapshot.ask) * 1.005, 6)
-        except Exception:
-            log.warning("Could not get snapshot for shutdown close — using last known price")
-            price = float(pos.avg_entry_price)
 
         if self.dry_run:
-            log.info("[DRY RUN] Shutdown close: %s %.6f @ %.4f", close_side, size, price)
+            log.info("[DRY RUN] Shutdown close: %s %.6f @ marketable price", close_side, float(abs(pos.net_qty)))
             return
 
-        log.info("Closing position on shutdown: %s %.6f %s @ %.4f",
-                 close_side, size, self.instrument, price)
-        fill = self.hl.place_order(
-            instrument=self.instrument,
-            side=close_side,
-            size=size,
-            price=price,
-            tif="Ioc",
-            builder=self.builder,
-        )
-        if fill:
-            self.position_tracker.apply_fill(
-                agent_id, self.instrument, fill.side,
-                fill.quantity, fill.price,
+        price_multipliers = [1.001, 1.003, 1.01] if close_side == "buy" else [0.999, 0.997, 0.99]
+        for attempt, multiplier in enumerate(price_multipliers, start=1):
+            pos = self.position_tracker.get_agent_position(agent_id, self.instrument)
+            if pos.net_qty == ZERO:
+                return
+            size = float(abs(pos.net_qty))
+            try:
+                snapshot = self.hl.get_snapshot(self.instrument)
+                if close_side == "sell":
+                    price = float(snapshot.bid) * multiplier
+                else:
+                    price = float(snapshot.ask) * multiplier
+            except Exception:
+                log.warning("Could not get snapshot for shutdown close — using last known price")
+                price = float(pos.avg_entry_price)
+
+            log.info("Shutdown close attempt %d: %s %.6f %s @ %.4f",
+                     attempt, close_side, size, self.instrument, price)
+            fill = self.hl.place_order(
+                instrument=self.instrument,
+                side=close_side,
+                size=size,
+                price=price,
+                tif="Ioc",
+                builder=self.builder,
             )
-            self.trade_log.append({
-                "tick": self.tick_count,
-                "oid": fill.oid,
-                "instrument": fill.instrument,
-                "side": fill.side,
-                "price": str(fill.price),
-                "quantity": str(fill.quantity),
-                "timestamp_ms": fill.timestamp_ms,
-                "fee": str(fill.fee),
-                "strategy": self.strategy.strategy_id,
-                "meta": "shutdown_close",
-            })
-            log.info("Shutdown close filled: %s %s @ %s", fill.side, fill.quantity, fill.price)
-        else:
-            log.warning("Shutdown close did not fill — position may remain open on exchange")
+            if fill:
+                self._apply_fills([fill], meta="shutdown_close")
+                log.info("Shutdown close filled immediately: %s %s @ %s", fill.side, fill.quantity, fill.price)
+                return
+
+            time.sleep(0.5)
+            collector = getattr(self.hl, "collect_new_fills", None)
+            if callable(collector):
+                collected = list(collector(self.instrument) or [])
+                if collected:
+                    self._apply_fills(collected, meta="shutdown_close")
+            self._sync_positions_from_exchange()
+            pos = self.position_tracker.get_agent_position(agent_id, self.instrument)
+            if pos.net_qty == ZERO:
+                log.info("Shutdown close reconciled flat after attempt %d", attempt)
+                return
+
+        pos = self.position_tracker.get_agent_position(agent_id, self.instrument)
+        log.warning("Shutdown close did not flatten position — remaining qty: %s", pos.net_qty)
 
     def _log_tick(self, snapshot, decisions, fills, ok: bool) -> None:
         agent_id = self.strategy.strategy_id
@@ -517,6 +531,48 @@ class TradingEngine:
                 log.info("Account balance: $%.2f", balance)
         except Exception as e:
             log.warning("Preflight balance check failed: %s (continuing anyway)", e)
+
+    def _sync_positions_from_exchange(self) -> None:
+        try:
+            account = self.hl.get_account_state()
+        except Exception as e:
+            log.warning("Position sync skipped: failed to fetch account state: %s", e)
+            return
+
+        positions = account.get("positions") or []
+        for raw in positions:
+            symbol = str(raw.get("market") or raw.get("symbol") or raw.get("instrument") or "")
+            if symbol.upper() != self.instrument.upper():
+                continue
+            try:
+                raw_size = Decimal(str(raw.get("size") or 0))
+            except Exception:
+                continue
+            if raw_size == ZERO:
+                continue
+            avg_entry = Decimal(str(
+                raw.get("average_entry_price")
+                or raw.get("avg_entry_price")
+                or raw.get("entry_price")
+                or raw.get("entryPx")
+                or 0
+            ))
+            realized = Decimal(str(raw.get("realized_positional_pnl") or 0)) + Decimal(str(raw.get("realized_positional_funding_pnl") or 0))
+            synced = Position(
+                instrument=self.instrument,
+                net_qty=raw_size,
+                avg_entry_price=avg_entry,
+                realized_pnl=realized,
+            )
+            self.position_tracker.agent_positions[self.strategy.strategy_id][self.instrument] = synced
+            self.position_tracker.house_positions[self.instrument] = Position(
+                instrument=self.instrument,
+                net_qty=raw_size,
+                avg_entry_price=avg_entry,
+                realized_pnl=realized,
+            )
+            log.info("Synced exchange position: %s %s @ %s", raw_size, self.instrument, avg_entry)
+            return
 
     @staticmethod
     def _estimate_account_balance(account: Dict[str, Any]) -> float:

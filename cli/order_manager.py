@@ -51,8 +51,10 @@ class OrderManager:
         decisions: List[StrategyDecision],
         snapshot: MarketSnapshot,
     ) -> List[HLFill]:
-        """Full tick cycle: cancel open orders -> TWAP slices -> place new -> return fills."""
+        """Full tick cycle: collect fills -> cancel open orders -> place new -> collect fills."""
         fills: List[HLFill] = []
+
+        fills.extend(self._collect_exchange_fills())
 
         # 1. Cancel any lingering open orders (safety net for IOC leftovers)
         self.cancel_all()
@@ -128,6 +130,10 @@ class OrderManager:
                 fills.append(fill)
                 self._total_filled += 1
 
+        exchange_fills = self._collect_exchange_fills()
+        fills.extend(exchange_fills)
+        self._total_filled += len(exchange_fills)
+
         return fills
 
     def _execute_child_slice(self, s: ChildSlice) -> HLFill | None:
@@ -150,6 +156,18 @@ class OrderManager:
         if fill is not None:
             self._total_filled += 1
         return fill
+
+    def _collect_exchange_fills(self) -> List[HLFill]:
+        if self.dry_run:
+            return []
+        collector = getattr(self.hl, "collect_new_fills", None)
+        if not callable(collector):
+            return []
+        try:
+            return list(collector(self.instrument) or [])
+        except Exception as e:
+            log.warning("Failed to collect exchange fills: %s", e)
+            return []
 
     def cancel_all(self) -> int:
         """Cancel all open orders for the instrument."""

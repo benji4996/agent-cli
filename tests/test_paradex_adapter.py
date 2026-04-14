@@ -4,6 +4,10 @@ from adapters.paradex_adapter import ParadexVenueAdapter
 
 
 class FakeProxy:
+    def __init__(self):
+        self.submitted_orders = []
+        self.fills = []
+
     def get_market_metadata(self, instrument: str):
         return {
             "symbol": instrument,
@@ -20,6 +24,13 @@ class FakeProxy:
             "open_interest": "12345",
         }
 
+    def submit_order(self, order):
+        self.submitted_orders.append(order)
+        return {"id": "order-1"}
+
+    def fetch_fills(self):
+        return list(self.fills)
+
 
 def test_get_snapshot_uses_summary_prices():
     adapter = ParadexVenueAdapter(FakeProxy())
@@ -31,3 +42,32 @@ def test_get_snapshot_uses_summary_prices():
     assert snap.volume_24h == 3900000.0
     assert snap.open_interest == 12345.0
     assert snap.spread_bps > 0
+
+
+def test_place_order_does_not_treat_ack_as_fill():
+    proxy = FakeProxy()
+    adapter = ParadexVenueAdapter(proxy)
+    fill = adapter.place_order("SOL-USD-PERP", "buy", 0.15, 83.9, tif="Gtc")
+    assert fill is None
+    assert len(proxy.submitted_orders) == 1
+
+
+def test_collect_new_fills_primes_existing_fills_then_only_returns_new_ones():
+    proxy = FakeProxy()
+    proxy.fills = [
+        {"id": "f1", "market": "SOL-USD-PERP", "side": "BUY", "price": "83.8", "size": "0.15", "created_at": 1000, "fee": "0"},
+        {"id": "f2", "market": "SOL-USD-PERP", "side": "SELL", "price": "83.9", "size": "0.15", "created_at": 2000, "fee": "0"},
+    ]
+    adapter = ParadexVenueAdapter(proxy)
+    first = adapter.collect_new_fills("SOL-USD-PERP")
+    proxy.fills.append({"id": "f3", "market": "SOL-USD-PERP", "side": "SELL", "price": "84.0", "size": "0.15", "created_at": 3000, "fee": "0"})
+    second = adapter.collect_new_fills("SOL-USD-PERP")
+    assert first == []
+    assert [f.oid for f in second] == ["f3"]
+
+
+def test_quantize_price_and_size_respect_market_metadata():
+    proxy = FakeProxy()
+    adapter = ParadexVenueAdapter(proxy)
+    assert adapter._quantize_price(86.7144, {"price_tick_size": "0.001"}) == 86.714
+    assert adapter._quantize_size(0.154, {"order_size_increment": "0.01"}) == 0.15
