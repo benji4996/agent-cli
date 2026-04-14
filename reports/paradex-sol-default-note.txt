@@ -1,13 +1,15 @@
 Paradex SOL default profile
 ===========================
 
-Default SOL Paradex profile now points to the recommended 25 bps option-4-derived configuration.
+Default SOL Paradex profile now points to the tuned 25 bps configuration with tighter inventory controls.
 
-Primary recommended config
-- configs/paradex_sol_avellaneda_25bps_recommended.yaml
+Primary tuned config
+- configs/paradex_sol_avellaneda_25bps_recommended_tuned.yaml
 
 Default SOL alias
 - configs/paradex_sol_avellaneda_sol_default.yaml
 
 Why
-- best balance so far between fills, churn, and post-run flatten reliability after the shutdown-sync fix
+- keeps the validated reduce-only shutdown flatten fix
+- lowers base size and configured inventory cap
+- now also uses cumulative risk validation to reject order sets that would overshoot max_position_qty within a tick

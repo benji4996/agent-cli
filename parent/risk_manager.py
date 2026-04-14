@@ -240,6 +240,7 @@ class RiskManager:
         valid = []
         pos = positions.get_house_position(instrument)
         is_reduce_only = self.check_reduce_only(instrument, positions)
+        projected_qty = pos.net_qty
 
         for order in orders:
             qty = Decimal(str(order.get("quantity", order.get("size", "0"))))
@@ -263,7 +264,15 @@ class RiskManager:
                     log.info("Order rejected: reduce-only, position flat")
                     continue
 
+            signed_qty = qty if side == "buy" else -qty
+            next_projected_qty = projected_qty + signed_qty
+            if abs(next_projected_qty) > self.limits.max_position_qty:
+                log.info("Order rejected: projected position %s would exceed max %s",
+                         next_projected_qty, self.limits.max_position_qty)
+                continue
+
             valid.append(order)
+            projected_qty = next_projected_qty
         return valid
 
     # ── Risk Guardian Gate Machine ──────────────────────────────────

@@ -1,9 +1,9 @@
 strategy: avellaneda_mm
 strategy_params:
-  gamma: 0.013
+  gamma: 0.03
   k: 23.0
-  base_size: 0.35
-  max_inventory: 0.35
+  base_size: 0.25
+  max_inventory: 0.25
   min_spread_bps: 25.0
   max_spread_bps: 25.0
   vol_window: 48
@@ -19,9 +19,9 @@ dry_run: false
 data_dir: data/paradex-sol-default
 log_level: INFO
 
-max_position_qty: 0.35
+max_position_qty: 0.25
 max_notional_usd: 800
-max_order_size: 0.35
+max_order_size: 0.25
 max_daily_drawdown_pct: 2.5
 max_leverage: 2.0
 tvl: 3000
