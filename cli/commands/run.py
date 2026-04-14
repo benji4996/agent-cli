@@ -7,12 +7,24 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from click.core import ParameterSource
+
 from cli.venue_factory import build_venue_adapter, normalize_venue
 
 import typer
 
 
+def _apply_cli_override(ctx: typer.Context, name: str) -> bool:
+    source = ctx.get_parameter_source(name)
+    return source in {
+        ParameterSource.COMMANDLINE,
+        ParameterSource.ENVIRONMENT,
+        ParameterSource.PROMPT,
+    }
+
+
 def run_cmd(
+    ctx: typer.Context,
     strategy: str = typer.Argument(
         ...,
         help="Strategy name (e.g., 'avellaneda_mm') or path ('module:ClassName')",
@@ -71,20 +83,29 @@ def run_cmd(
     from cli.config import TradingConfig
     from cli.strategy_registry import resolve_instrument, resolve_strategy_path
 
-    # Load config from YAML if provided, then override with CLI flags
+    # Load config from YAML, then only override fields explicitly provided via CLI.
     if config:
         cfg = TradingConfig.from_yaml(str(config))
     else:
         cfg = TradingConfig()
 
     cfg.strategy = strategy
-    cfg.instrument = resolve_instrument(instrument)
-    cfg.venue = normalize_venue(venue)
-    cfg.tick_interval = tick_interval
-    cfg.mainnet = mainnet
-    cfg.dry_run = dry_run
-    cfg.max_ticks = max_ticks
-    cfg.data_dir = data_dir
+    if not config or _apply_cli_override(ctx, "instrument"):
+        cfg.instrument = resolve_instrument(instrument)
+    if not config or _apply_cli_override(ctx, "venue"):
+        cfg.venue = normalize_venue(venue)
+    else:
+        cfg.venue = normalize_venue(cfg.venue)
+    if not config or _apply_cli_override(ctx, "tick_interval"):
+        cfg.tick_interval = tick_interval
+    if not config or _apply_cli_override(ctx, "mainnet"):
+        cfg.mainnet = mainnet
+    if not config or _apply_cli_override(ctx, "dry_run"):
+        cfg.dry_run = dry_run
+    if not config or _apply_cli_override(ctx, "max_ticks"):
+        cfg.max_ticks = max_ticks
+    if not config or _apply_cli_override(ctx, "data_dir"):
+        cfg.data_dir = data_dir
 
     # Setup logging
     logging.basicConfig(
