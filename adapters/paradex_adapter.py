@@ -107,6 +107,7 @@ class ParadexVenueAdapter(VenueAdapter):
         price: float,
         tif: str = "Ioc",
         builder: Optional[dict] = None,
+        reduce_only: bool = False,
     ) -> Optional[Fill]:
         metadata = self._proxy.get_market_metadata(instrument)
         quantized_price = self._quantize_price(price, metadata)
@@ -128,6 +129,7 @@ class ParadexVenueAdapter(VenueAdapter):
             "size": adjusted_size,
             "price": quantized_price,
             "time_in_force": tif.upper(),
+            "reduce_only": bool(reduce_only),
         }
         if builder:
             log.debug("Ignoring builder fee payload for Paradex order: %s", builder)

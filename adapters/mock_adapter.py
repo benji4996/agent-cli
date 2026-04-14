@@ -67,7 +67,8 @@ class MockVenueAdapter(VenueAdapter):
 
     def place_order(self, instrument: str, side: str, size: float,
                     price: float, tif: str = "Ioc",
-                    builder: Optional[dict] = None) -> Optional[Fill]:
+                    builder: Optional[dict] = None,
+                    reduce_only: bool = False) -> Optional[Fill]:
         hf = self._proxy.place_order(instrument, side, size, price, tif, builder)
         return _hl_fill_to_fill(hf) if hf is not None else None
 

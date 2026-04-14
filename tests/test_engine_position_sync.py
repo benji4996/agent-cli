@@ -97,3 +97,4 @@ def test_close_all_positions_uses_synced_exchange_sign_before_shutdown_order():
     assert hl.placed, "expected shutdown order to be submitted"
     assert hl.placed[0]["side"] == "sell"
     assert hl.placed[0]["tif"] == "Ioc"
+    assert hl.placed[0]["reduce_only"] is True

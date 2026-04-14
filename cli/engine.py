@@ -474,6 +474,7 @@ class TradingEngine:
                 price=price,
                 tif="Ioc",
                 builder=self.builder,
+                reduce_only=True,
             )
             if fill:
                 self._apply_fills([fill], meta="shutdown_close")

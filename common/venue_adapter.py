@@ -61,7 +61,8 @@ class VenueAdapter(ABC):
     @abstractmethod
     def place_order(self, instrument: str, side: str, size: float,
                     price: float, tif: str = "Ioc",
-                    builder: Optional[dict] = None) -> Optional[Fill]: ...
+                    builder: Optional[dict] = None,
+                    reduce_only: bool = False) -> Optional[Fill]: ...
 
     @abstractmethod
     def cancel_order(self, instrument: str, oid: str) -> bool: ...

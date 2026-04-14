@@ -93,6 +93,15 @@ def test_place_order_strict_mode_skips_quantized_zero_size():
     assert proxy.submitted_orders == []
 
 
+def test_place_order_can_forward_reduce_only_for_shutdown_closes():
+    proxy = FakeProxy()
+    adapter = ParadexVenueAdapter(proxy, min_notional_mode="auto_bump")
+    adapter.place_order("SOL-USD-PERP", "sell", 0.07, 85.671, tif="Ioc", reduce_only=True)
+    assert len(proxy.submitted_orders) == 1
+    assert proxy.submitted_orders[0]["size"] == 0.12
+    assert proxy.submitted_orders[0]["reduce_only"] is True
+
+
 def test_collect_new_fills_primes_existing_fills_then_only_returns_new_ones():
     proxy = FakeProxy()
     proxy.fills = [
