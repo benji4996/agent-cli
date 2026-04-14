@@ -38,12 +38,14 @@ class ParadexVenueAdapter(VenueAdapter):
         *,
         min_notional_mode: str = "strict",
         auto_bump_buffer_pct: float = 0.0,
+        passive_min_notional_mode: str = "strict",
     ):
         self._proxy = proxy
         self._seen_fill_ids: set[str] = set()
         self._fills_initialized = False
         self._min_notional_mode = (min_notional_mode or "strict").strip().lower()
         self._auto_bump_buffer_pct = max(0.0, float(auto_bump_buffer_pct or 0.0))
+        self._passive_min_notional_mode = (passive_min_notional_mode or "strict").strip().lower()
 
     def connect(self, private_key: str, testnet: bool = True) -> None:
         self._proxy.connect()
@@ -99,6 +101,21 @@ class ParadexVenueAdapter(VenueAdapter):
             mids[instrument] = str(mid if mid > 0 else 0.0)
         return mids
 
+    def normalize_order(self, instrument: str, side: str, size: float, price: float, tif: str = "Ioc") -> Dict[str, float]:
+        metadata = self._proxy.get_market_metadata(instrument)
+        quantized_price = self._quantize_price(price, metadata)
+        quantized_size = self._quantize_size(size, metadata)
+        if self._is_passive_tif(tif) and self._passive_min_notional_mode == "floor":
+            quantized_size = self._floor_passive_size_to_min_notional(
+                instrument=instrument,
+                side=side,
+                size=quantized_size,
+                price=quantized_price,
+                tif=tif,
+                metadata=metadata,
+            )
+        return {"size": quantized_size, "price": quantized_price}
+
     def place_order(
         self,
         instrument: str,
@@ -109,9 +126,10 @@ class ParadexVenueAdapter(VenueAdapter):
         builder: Optional[dict] = None,
         reduce_only: bool = False,
     ) -> Optional[Fill]:
+        normalized = self.normalize_order(instrument, side, size, price, tif)
         metadata = self._proxy.get_market_metadata(instrument)
-        quantized_price = self._quantize_price(price, metadata)
-        quantized_size = self._quantize_size(size, metadata)
+        quantized_price = normalized["price"]
+        quantized_size = normalized["size"]
         adjusted_size = self._enforce_min_notional(
             instrument=instrument,
             side=side,
@@ -191,6 +209,34 @@ class ParadexVenueAdapter(VenueAdapter):
     def set_leverage(self, leverage: int, coin: str, is_cross: bool = True) -> None:
         log.info("Paradex leverage control not implemented yet; requested leverage=%s coin=%s cross=%s", leverage, coin, is_cross)
 
+    def _floor_passive_size_to_min_notional(
+        self,
+        *,
+        instrument: str,
+        side: str,
+        size: float,
+        price: float,
+        tif: str,
+        metadata: Dict[str, object],
+    ) -> float:
+        if price <= 0 or size <= 0:
+            return size
+        min_notional = self._coerce_float(metadata, "min_notional", "min_trade_value")
+        if min_notional <= 0:
+            return size
+        increment = self._coerce_float(metadata, "order_size_increment", "size_increment") or 0.0
+        notional = size * price
+        if notional >= min_notional:
+            return size
+        floored = self._ceil_to_increment(min_notional / price, increment)
+        if floored <= 0:
+            return size
+        log.info(
+            "Flooring passive Paradex quote to min_notional: %s %s %.6f -> %.6f @ %.6f tif=%s",
+            side.upper(), instrument, size, floored, price, tif.upper(),
+        )
+        return floored
+
     def _enforce_min_notional(
         self,
         *,
@@ -244,6 +290,10 @@ class ParadexVenueAdapter(VenueAdapter):
             side.upper(), instrument, effective_size, price, tif.upper(), notional, min_notional, mode,
         )
         return None
+
+    @staticmethod
+    def _is_passive_tif(tif: str) -> bool:
+        return str(tif or "").strip().lower() in {"alo", "gtc"}
 
     @staticmethod
     def _coerce_float(data: Dict[str, object], *keys: str) -> float:

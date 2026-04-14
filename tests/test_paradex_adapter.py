@@ -121,6 +121,14 @@ def test_collect_new_fills_primes_existing_fills_then_only_returns_new_ones():
     assert [f.oid for f in second] == ["f3"]
 
 
+def test_normalize_order_floor_mode_raises_passive_quotes_to_min_notional():
+    proxy = FakeProxy()
+    adapter = ParadexVenueAdapter(proxy, min_notional_mode="strict", passive_min_notional_mode="floor")
+    normalized = adapter.normalize_order("SOL-USD-PERP", "buy", 0.04, 83.67, tif="Alo")
+    assert normalized["size"] == 0.12
+    assert normalized["price"] == 83.67
+
+
 def test_quantize_price_and_size_respect_market_metadata():
     proxy = FakeProxy()
     adapter = ParadexVenueAdapter(proxy)

@@ -202,10 +202,11 @@ class TradingEngine:
         managed_decisions = self.managed_orders.on_tick(snapshot)
         decisions.extend(managed_decisions)
 
-        # 5. Filter through risk manager
+        # 5. Normalize orders for venue execution, then filter through risk manager
+        normalized_decisions = self._normalize_decisions_for_execution(decisions)
         order_dicts = [
             {"side": d.side, "size": d.size, "quantity": d.size, "limit_price": d.limit_price}
-            for d in decisions if d.action == "place_order"
+            for d in normalized_decisions if d.action == "place_order"
         ]
         valid_dicts = self.risk_manager.validate_orders(
             order_dicts, self.instrument, self.position_tracker,
@@ -215,7 +216,7 @@ class TradingEngine:
         for vd in valid_dicts:
             valid_set.add((vd["side"], vd["size"], vd["limit_price"]))
         valid_decisions = [
-            d for d in decisions
+            d for d in normalized_decisions
             if d.action == "place_order"
             and (d.side, d.size, d.limit_price) in valid_set
         ]
@@ -338,6 +339,32 @@ class TradingEngine:
                 self._guard_close_position(snapshot)
                 self.guard_bridge.mark_closed(snapshot.mid_price, result.reason)
                 self._running = False
+
+    def _normalize_decisions_for_execution(self, decisions):
+        normalizer = getattr(self.hl, "normalize_order", None)
+        if not callable(normalizer):
+            return decisions
+        normalized = []
+        for decision in decisions:
+            if decision.action != "place_order" or decision.size <= 0 or decision.limit_price <= 0:
+                normalized.append(decision)
+                continue
+            adjusted = normalizer(
+                decision.instrument or self.instrument,
+                decision.side,
+                decision.size,
+                decision.limit_price,
+                decision.order_type,
+            ) or {}
+            normalized.append(
+                decision.model_copy(
+                    update={
+                        "size": float(adjusted.get("size", decision.size)),
+                        "limit_price": float(adjusted.get("price", decision.limit_price)),
+                    }
+                )
+            )
+        return normalized
 
     def _apply_fills(self, fills, meta: str | None = None) -> None:
         agent_id = self.strategy.strategy_id

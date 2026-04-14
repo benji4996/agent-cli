@@ -80,6 +80,10 @@ class VenueAdapter(ABC):
 
     # --- Optional (check capabilities first) ---
 
+    def normalize_order(self, instrument: str, side: str, size: float,
+                        price: float, tif: str = "Ioc") -> Dict[str, float]:
+        return {"size": size, "price": price}
+
     def place_trigger_order(self, instrument: str, side: str, size: float,
                             trigger_price: float,
                             builder: Optional[dict] = None) -> Optional[str]:
