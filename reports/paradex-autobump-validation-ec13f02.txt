@@ -1,0 +1,35 @@
+Paradex auto-bump validation note
+Branch: paradex-live-validation
+Relevant code fix: ec13f02 fix: enforce paradex min notional before submit
+Session follow-up: live validation after min-notional enforcement
+
+Summary
+- Strict mode confirmed: sub-min-notional IOC orders are skipped before submit with a clear warning.
+- Auto-bump mode confirmed: a 0.05 SOL IOC order at 86.50 was auto-bumped to 0.12 SOL and submitted successfully.
+- Fetching terminal order state confirmed the bumped order completed instead of being rejected below minimum.
+
+Key traced findings
+- SOL-USD-PERP market metadata includes min_notional=10, order_size_increment=0.01, price_tick_size=0.001.
+- At ~86 USDC/SOL, 0.05 SOL is only about 4.33 USDC notional and is invalid on Paradex.
+- After auto-bump, 0.12 SOL is about 10.38 USDC notional and is valid.
+
+10-tick aggressive auto-bump validation
+Config: configs/paradex_sol_avellaneda_aggressive.yaml
+Data dir: /tmp/paradex-autobump-10tick-1776139535
+
+Pre-run state
+- Exchange already had OPEN LONG 0.12 SOL at avg entry 85.99547995.
+- Engine startup successfully synced that pre-existing exchange position.
+
+Run outcome
+- 10 ticks
+- 20 placed
+- 20 filled
+- realized pnl about -0.03
+- exchange ended flat after shutdown close reconciliation
+- local state recorded 21 trade log lines including shutdown_close
+
+Takeaway
+- The previous '0 fills' behavior was materially caused by sub-min-notional orders.
+- After enabling auto-bump, real fills occurred on Paradex.
+- Remaining work is tuning to reduce churn / taker drag rather than fixing execution validity.

@@ -1,0 +1,35 @@
+strategy: avellaneda_mm
+strategy_params:
+  gamma: 0.01
+  k: 25.0
+  base_size: 0.05
+  max_inventory: 0.5
+  min_spread_bps: 1.0
+  max_spread_bps: 8.0
+  vol_window: 48
+  order_type: Ioc
+  ioc_cross_bps: 0.0
+
+instrument: SOL-USD-PERP
+venue: paradex
+mainnet: true
+tick_interval: 2.0
+dry_run: false
+
+data_dir: data/paradex-sol-avellaneda-autobump-tuned
+log_level: INFO
+
+max_position_qty: 0.5
+max_notional_usd: 250
+max_order_size: 0.10
+max_daily_drawdown_pct: 2.5
+max_leverage: 2.0
+tvl: 3000
+
+builder:
+  builder_address: ""
+  fee_rate_tenths_bps: 0
+
+execution:
+  paradex_min_notional_mode: auto_bump
+  paradex_auto_bump_buffer_pct: 0.0

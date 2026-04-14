@@ -1,0 +1,36 @@
+Paradex 5-minute rerun after zero-size patch
+Branch: paradex-live-validation
+Head: 65f8472 fix: skip zero-size paradex orders after quantization
+Run config: configs/paradex_sol_avellaneda_autobump_tuned.yaml
+Data dir: /tmp/paradex-autobump-5min-rerun-1776140617
+
+Patch verification
+- Previous 5-minute run exposed INVALID_REQUEST_PARAMETER: size must be a non-negative non-zero number
+- Cause: inventory scaling plus quantization rounded raw size below increment to 0.0, and the adapter still submitted it
+- This rerun showed FOUND_SIZE_ERRORS=0
+- Therefore the zero-size submission bug is fixed
+
+Risk-gate findings
+- Cooldown was triggered by the Risk Guardian gate after 2 consecutive losses
+- Evidence from run log:
+  - T8: risk gate recorded LOSS (realized PnL: -0.00048)
+  - T49: risk gate recorded LOSS (realized PnL: -0.018960)
+  - RISK GATE -> COOLDOWN: 2 consecutive losses
+- Current defaults come from parent/risk_manager.py:
+  - cooldown_trigger_losses default = 2
+  - cooldown_duration_ms default = 1,800,000 (30 minutes)
+  - cooldown_drawdown_pct default = 50%
+- The normal hl run path does not currently override these defaults, so the engine uses the built-in gate thresholds
+
+Run outcome
+- Runtime ~298s
+- 74 ticks
+- 88 orders placed
+- 16 fills
+- Local realized pnl about -0.01896
+- Exchange ended flat with no open orders
+
+Interpretation
+- Order validity is now materially improved
+- Remaining issue is strategy economics/churn, not invalid order payloads
+- IOC plus auto-bumped minimum size still incurs taker drag; a more maker-leaning configuration may reduce churn while preserving some fill probability
