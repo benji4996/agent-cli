@@ -205,6 +205,33 @@ class TestMakerQuoteRefresh:
         hl.cancel_order.assert_not_called()
         hl.place_order.assert_not_called()
 
+    def test_passive_orders_still_collect_resting_fill_before_refresh(self):
+        hl = _mock_hl(fill_on_order=False)
+        fill = HLFill(
+            oid="maker-fill-1", instrument="SOL-USD-PERP", side="sell",
+            price=Decimal("83.67"), quantity=Decimal("0.15"), timestamp_ms=2_500,
+        )
+        hl.collect_new_fills.side_effect = [[], [], [fill]]
+        mgr = OrderManager(hl, instrument="SOL-USD-PERP", maker_refresh_interval_s=12.0)
+        decision = StrategyDecision(
+            action="place_order", side="sell", size=0.15, limit_price=83.67,
+            instrument="SOL-USD-PERP", order_type="Alo",
+        )
+        first = _snapshot(83.66)
+        first.timestamp_ms = 1_000
+        mgr.update([decision], first)
+
+        hl.reset_mock()
+        hl.collect_new_fills.side_effect = [[fill]]
+        hl.get_open_orders.return_value = [{"id": "resting-1", "side": "SELL"}]
+        second = _snapshot(83.67)
+        second.timestamp_ms = 3_000
+        fills = mgr.update([decision], second)
+
+        assert [f.oid for f in fills] == ["maker-fill-1"]
+        hl.cancel_order.assert_not_called()
+        hl.place_order.assert_not_called()
+
     def test_passive_orders_refresh_after_interval_expires(self):
         hl = _mock_hl(fill_on_order=False)
         mgr = OrderManager(hl, instrument="SOL-USD-PERP", maker_refresh_interval_s=12.0)
