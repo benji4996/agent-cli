@@ -29,3 +29,7 @@ tvl: 3000
 builder:
   builder_address: ""
   fee_rate_tenths_bps: 0
+
+execution:
+  paradex_min_notional_mode: auto_bump
+  paradex_auto_bump_buffer_pct: 0.0

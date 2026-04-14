@@ -50,6 +50,9 @@ class TradingConfig:
     # Builder fee
     builder: Dict[str, Any] = field(default_factory=dict)
 
+    # Execution venue options
+    execution: Dict[str, Any] = field(default_factory=dict)
+
     # Logging
     log_level: str = "INFO"
     log_file: Optional[str] = None

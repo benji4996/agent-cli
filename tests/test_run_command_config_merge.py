@@ -45,7 +45,7 @@ def test_run_uses_yaml_values_when_cli_flags_not_explicit(monkeypatch, tmp_path)
         )
     )
 
-    monkeypatch.setattr("cli.commands.run.build_venue_adapter", lambda venue, mainnet, mock: (object(), "LIVE"))
+    monkeypatch.setattr("cli.commands.run.build_venue_adapter", lambda venue, mainnet, mock, cfg=None: (object(), "LIVE"))
     monkeypatch.setattr("cli.strategy_registry.resolve_strategy_path", lambda strategy: "dummy:Strategy")
     monkeypatch.setattr("sdk.strategy_sdk.loader.load_strategy", lambda path: DummyStrategy)
     monkeypatch.setattr("cli.engine.TradingEngine", DummyEngine)
@@ -76,7 +76,7 @@ def test_run_cli_flags_override_yaml_when_explicit(monkeypatch, tmp_path):
         )
     )
 
-    monkeypatch.setattr("cli.commands.run.build_venue_adapter", lambda venue, mainnet, mock: (object(), "LIVE"))
+    monkeypatch.setattr("cli.commands.run.build_venue_adapter", lambda venue, mainnet, mock, cfg=None: (object(), "LIVE"))
     monkeypatch.setattr("cli.strategy_registry.resolve_strategy_path", lambda strategy: "dummy:Strategy")
     monkeypatch.setattr("sdk.strategy_sdk.loader.load_strategy", lambda path: DummyStrategy)
     monkeypatch.setattr("cli.engine.TradingEngine", DummyEngine)

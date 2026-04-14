@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Tuple
 
 if TYPE_CHECKING:
     from common.venue_adapter import VenueAdapter
+    from cli.config import TradingConfig
 
 SUPPORTED_VENUES = ("hl", "paradex")
 
@@ -29,7 +30,7 @@ def normalize_venue(venue: str) -> str:
     return normalized
 
 
-def build_venue_adapter(*, venue: str, mainnet: bool = False, mock: bool = False) -> Tuple[VenueAdapter, str]:
+def build_venue_adapter(*, venue: str, mainnet: bool = False, mock: bool = False, cfg: 'TradingConfig | None' = None) -> Tuple[VenueAdapter, str]:
     """Build a venue adapter for CLI execution.
 
     Returns `(adapter, mode_label)` where mode_label is human-readable for CLI
@@ -48,7 +49,7 @@ def build_venue_adapter(*, venue: str, mainnet: bool = False, mock: bool = False
         from cli.hl_adapter import DirectHLProxy
         from parent.hl_proxy import HLProxy
 
-        cfg = TradingConfig(venue=normalized)
+        cfg = cfg or TradingConfig(venue=normalized)
         private_key = cfg.get_private_key()
         raw_hl = HLProxy(private_key=private_key, testnet=not mainnet)
         adapter = HLVenueAdapter(DirectHLProxy(raw_hl))
@@ -61,12 +62,17 @@ def build_venue_adapter(*, venue: str, mainnet: bool = False, mock: bool = False
         from common.credentials import resolve_wallet_address
         from parent.paradex_proxy import ParadexProxy
 
-        cfg = TradingConfig(venue=normalized)
+        cfg = cfg or TradingConfig(venue=normalized)
         private_key = cfg.get_private_key()
         address = resolve_wallet_address("paradex")
         proxy = ParadexProxy(l2_private_key=private_key, l2_address=address, testnet=not mainnet)
         proxy.connect()
-        adapter = ParadexVenueAdapter(proxy)
+        execution_cfg = cfg.execution or {}
+        adapter = ParadexVenueAdapter(
+            proxy,
+            min_notional_mode=str(execution_cfg.get("paradex_min_notional_mode", "strict")),
+            auto_bump_buffer_pct=float(execution_cfg.get("paradex_auto_bump_buffer_pct", 0.0) or 0.0),
+        )
         network = "mainnet" if mainnet else "testnet"
         return adapter, f"LIVE ({network})"
 

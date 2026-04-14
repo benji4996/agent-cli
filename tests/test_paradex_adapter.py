@@ -13,6 +13,7 @@ class FakeProxy:
             "symbol": instrument,
             "price_tick_size": "0.001",
             "order_size_increment": "0.01",
+            "min_notional": "10",
         }
 
     def get_market_summary(self, instrument: str):
@@ -50,6 +51,31 @@ def test_place_order_does_not_treat_ack_as_fill():
     fill = adapter.place_order("SOL-USD-PERP", "buy", 0.15, 83.9, tif="Gtc")
     assert fill is None
     assert len(proxy.submitted_orders) == 1
+
+
+def test_place_order_strict_mode_skips_sub_min_notional_order():
+    proxy = FakeProxy()
+    adapter = ParadexVenueAdapter(proxy, min_notional_mode="strict")
+    fill = adapter.place_order("SOL-USD-PERP", "buy", 0.05, 83.9, tif="Ioc")
+    assert fill is None
+    assert proxy.submitted_orders == []
+
+
+def test_place_order_auto_bump_mode_raises_size_to_min_notional():
+    proxy = FakeProxy()
+    adapter = ParadexVenueAdapter(proxy, min_notional_mode="auto_bump")
+    fill = adapter.place_order("SOL-USD-PERP", "buy", 0.05, 83.9, tif="Ioc")
+    assert fill is None
+    assert len(proxy.submitted_orders) == 1
+    assert proxy.submitted_orders[0]["size"] == 0.12
+
+
+def test_place_order_auto_bump_mode_can_apply_buffer_pct():
+    proxy = FakeProxy()
+    adapter = ParadexVenueAdapter(proxy, min_notional_mode="auto_bump", auto_bump_buffer_pct=10.0)
+    adapter.place_order("SOL-USD-PERP", "buy", 0.05, 83.9, tif="Ioc")
+    assert len(proxy.submitted_orders) == 1
+    assert proxy.submitted_orders[0]["size"] == 0.14
 
 
 def test_collect_new_fills_primes_existing_fills_then_only_returns_new_ones():

@@ -244,6 +244,7 @@ def run_cmd(
             venue=cfg.venue,
             mainnet=cfg.mainnet,
             mock=mock,
+            cfg=cfg,
         )
     except (RuntimeError, ValueError, NotImplementedError) as e:
         typer.echo(f"Error: {e}", err=True)
