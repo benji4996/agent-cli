@@ -1,0 +1,24 @@
+Paradex fix safety status
+=========================
+
+Production-safe now
+- Startup position sync from exchange side/size mapping
+- Shutdown close uses fresh exchange resync before deciding side
+- Shutdown close uses reduce_only on normal IOC close attempts
+- Cumulative anti-overshoot guard in risk validation blocks same-tick order sets that would exceed max_position_qty
+- Tuned default SOL Paradex profile uses smaller base size and tighter configured inventory cap
+
+Not production-safe / not enabled automatically
+- Automatic dust-sweep shutdown logic for sub-min-notional leftovers
+- The live test showed it could flip a +0.01 SOL residual into a -0.12 SOL short before manual intervention
+- That logic was reverted from the engine and should not be used unattended
+
+Operational reality right now
+- Normal shutdown flatten works for ordinary residuals and larger positions
+- Tiny sub-min-notional leftovers may still remain after shutdown
+- Those dust cases require operator attention until a safer venue-specific exact-close method exists
+
+Recommended current operating policy
+- Run with the tuned default profile
+- Trust normal reduce_only shutdown for standard cases
+- If a tiny residual remains, use an operator-invoked cleanup path rather than autonomous overshoot logic
