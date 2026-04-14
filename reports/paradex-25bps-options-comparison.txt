@@ -1,0 +1,48 @@
+Paradex 25 bps SOL options comparison
+===================================
+
+Option 1: 0.5 SOL GTC auto_bump
+- ticks: 68
+- orders: 84 placed / 1 filled
+- pnl_usd: 0.07
+- reduce_ticks: 53
+- shutdown_flat: True
+
+Option 2: 0.25 SOL GTC tight inventory
+- ticks: 59
+- orders: 118 placed / 0 filled
+- pnl_usd: 0.0
+- reduce_ticks: 0
+- shutdown_flat: False
+
+Option 3: 0.5 SOL IOC auto_bump
+- ticks: 70
+- orders: 105 placed / 43 filled
+- pnl_usd: -0.16
+- reduce_ticks: 36
+- shutdown_flat: True
+
+Option 4 initial: 0.35 SOL IOC hybrid-mid
+- ticks: 71
+- orders: 106 placed / 43 filled
+- pnl_usd: -0.01
+- reduce_ticks: 36
+- shutdown_flat: False
+
+Option 4 rerun after flatten patch
+- ticks: 71
+- orders: 97 placed / 33 filled
+- pnl_usd: 0.0
+- reduce_ticks: 46
+- shutdown_flat: True
+
+Recommended 30m run
+- ticks: 420
+- orders: 644 placed / 229 filled
+- pnl_usd: 0.0
+- reduce_ticks: 196
+- shutdown_flat: False
+
+Conclusion
+- Recommended profile remains option 4 / recommended 25bps config.
+- Shutdown flatten reliability was improved by resyncing exchange position sign and clearing stale local state before each close attempt.

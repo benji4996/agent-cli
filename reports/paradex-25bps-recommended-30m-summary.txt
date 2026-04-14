@@ -1,0 +1,20 @@
+Paradex recommended 25 bps 30-minute run
+=======================================
+
+Config
+- configs/paradex_sol_avellaneda_25bps_recommended.yaml
+
+Summary
+- ticks: 420
+- orders_placed: 644
+- orders_filled: 229
+- pnl_usd: 0.0
+- runtime_s: 1809
+- position_limit_warnings: 196
+- reduce_ticks: 196
+- auto_bumps: 235
+- shutdown_flat: False
+
+Post-run note
+- The run left a small residual SOL short on exchange, so shutdown flatten still needs another edge-case fix for sub-min-notional leftovers.
+- A comparison report for options 1-4 plus the 30m run was saved separately.

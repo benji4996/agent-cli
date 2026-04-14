@@ -1,0 +1,13 @@
+Paradex SOL default profile
+===========================
+
+Default SOL Paradex profile now points to the recommended 25 bps option-4-derived configuration.
+
+Primary recommended config
+- configs/paradex_sol_avellaneda_25bps_recommended.yaml
+
+Default SOL alias
+- configs/paradex_sol_avellaneda_sol_default.yaml
+
+Why
+- best balance so far between fills, churn, and post-run flatten reliability after the shutdown-sync fix
