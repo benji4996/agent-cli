@@ -114,6 +114,7 @@ class ParadexVenueAdapter(VenueAdapter):
         adjusted_size = self._enforce_min_notional(
             instrument=instrument,
             side=side,
+            raw_size=max(0.0, float(size)),
             size=quantized_size,
             price=quantized_price,
             tif=tif,
@@ -193,19 +194,33 @@ class ParadexVenueAdapter(VenueAdapter):
         *,
         instrument: str,
         side: str,
+        raw_size: float,
         size: float,
         price: float,
         tif: str,
         metadata: Dict[str, object],
     ) -> Optional[float]:
-        min_notional = self._coerce_float(metadata, "min_notional", "min_trade_value")
-        if min_notional <= 0 or price <= 0 or size <= 0:
-            return size
-        notional = size * price
-        if notional >= min_notional:
-            return size
-        increment = self._coerce_float(metadata, "order_size_increment", "size_increment") or 0.0
         mode = self._min_notional_mode
+        if price <= 0 or raw_size <= 0:
+            log.warning(
+                "Skipping Paradex order with non-positive price/size: %s %s raw_size=%.6f quantized_size=%.6f price=%.6f tif=%s mode=%s",
+                side.upper(), instrument, raw_size, size, price, tif.upper(), mode,
+            )
+            return None
+        min_notional = self._coerce_float(metadata, "min_notional", "min_trade_value")
+        increment = self._coerce_float(metadata, "order_size_increment", "size_increment") or 0.0
+        effective_size = size if size > 0 else 0.0
+        if min_notional <= 0:
+            if effective_size > 0:
+                return effective_size
+            log.warning(
+                "Skipping Paradex order after size quantized to zero: %s %s raw_size=%.6f price=%.6f tif=%s mode=%s",
+                side.upper(), instrument, raw_size, price, tif.upper(), mode,
+            )
+            return None
+        notional = effective_size * price
+        if effective_size > 0 and notional >= min_notional:
+            return effective_size
         if mode == "auto_bump":
             target_notional = min_notional * (1.0 + self._auto_bump_buffer_pct / 100.0)
             required_size = target_notional / price
@@ -213,12 +228,18 @@ class ParadexVenueAdapter(VenueAdapter):
             bumped_notional = bumped * price
             log.info(
                 "Auto-bumping Paradex order to satisfy min_notional: %s %s %.6f -> %.6f @ %.6f (%s %.4f -> %.4f)",
-                side.upper(), instrument, size, bumped, price, "notional", notional, bumped_notional,
+                side.upper(), instrument, effective_size or raw_size, bumped, price, "notional", notional, bumped_notional,
             )
-            return bumped
+            return bumped if bumped > 0 else None
+        if effective_size <= 0:
+            log.warning(
+                "Skipping Paradex order after size quantized to zero: %s %s raw_size=%.6f price=%.6f tif=%s mode=%s",
+                side.upper(), instrument, raw_size, price, tif.upper(), mode,
+            )
+            return None
         log.warning(
             "Skipping Paradex order below min_notional: %s %s size=%.6f price=%.6f tif=%s notional=%.4f min_notional=%.4f mode=%s",
-            side.upper(), instrument, size, price, tif.upper(), notional, min_notional, mode,
+            side.upper(), instrument, effective_size, price, tif.upper(), notional, min_notional, mode,
         )
         return None
 

@@ -78,6 +78,21 @@ def test_place_order_auto_bump_mode_can_apply_buffer_pct():
     assert proxy.submitted_orders[0]["size"] == 0.14
 
 
+def test_place_order_auto_bump_mode_recovers_from_quantized_zero_size():
+    proxy = FakeProxy()
+    adapter = ParadexVenueAdapter(proxy, min_notional_mode="auto_bump")
+    adapter.place_order("SOL-USD-PERP", "buy", 0.005, 83.9, tif="Ioc")
+    assert len(proxy.submitted_orders) == 1
+    assert proxy.submitted_orders[0]["size"] == 0.12
+
+
+def test_place_order_strict_mode_skips_quantized_zero_size():
+    proxy = FakeProxy()
+    adapter = ParadexVenueAdapter(proxy, min_notional_mode="strict")
+    adapter.place_order("SOL-USD-PERP", "buy", 0.005, 83.9, tif="Ioc")
+    assert proxy.submitted_orders == []
+
+
 def test_collect_new_fills_primes_existing_fills_then_only_returns_new_ones():
     proxy = FakeProxy()
     proxy.fills = [
