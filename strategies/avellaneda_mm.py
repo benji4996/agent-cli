@@ -36,6 +36,8 @@ class AvellanedaStoikovMM(BaseStrategy):
         min_spread_bps: float = 5.0,
         max_spread_bps: float = 200.0,
         vol_window: int = 30,
+        order_type: str = "Gtc",
+        ioc_cross_bps: float = 0.0,
         toxicity_scorer=None,
         **kwargs,
     ):
@@ -47,6 +49,8 @@ class AvellanedaStoikovMM(BaseStrategy):
         self.min_spread_bps = min_spread_bps
         self.max_spread_bps = max_spread_bps
         self.vol_window = vol_window
+        self.order_type = order_type
+        self.ioc_cross_bps = max(0.0, ioc_cross_bps)
 
         # Optional anomaly-driven toxicity scorer (anomaly_protection.AnomalyToxicityScorer)
         self._tox_scorer = toxicity_scorer
@@ -106,6 +110,15 @@ class AvellanedaStoikovMM(BaseStrategy):
         scale = max(0.1, 1.0 - utilisation)
         return round(self.base_size * scale, 6)
 
+    def _apply_crossing(self, bid: float, ask: float, snapshot: MarketSnapshot) -> tuple[float, float]:
+        """For IOC mode, optionally cross through the top of book to seek fills."""
+        if self.order_type.lower() != "ioc":
+            return bid, ask
+        cross = self.ioc_cross_bps / 10_000.0
+        aggressive_buy = snapshot.ask * (1.0 + cross) if snapshot.ask > 0 else ask
+        aggressive_sell = snapshot.bid * (1.0 - cross) if snapshot.bid > 0 else bid
+        return max(bid, aggressive_buy), min(ask, aggressive_sell)
+
     # ------------------------------------------------------------------
     # Tick
     # ------------------------------------------------------------------
@@ -137,6 +150,9 @@ class AvellanedaStoikovMM(BaseStrategy):
 
         bid = round(r_price - half_spread, 2)
         ask = round(r_price + half_spread, 2)
+        bid, ask = self._apply_crossing(bid, ask, snapshot)
+        bid = round(bid, 2)
+        ask = round(ask, 2)
         size = self._scale_size(q)
 
         orders: List[StrategyDecision] = []
@@ -150,6 +166,7 @@ class AvellanedaStoikovMM(BaseStrategy):
                     side="sell",
                     size=min(size, abs(q)),
                     limit_price=ask,
+                    order_type=self.order_type,
                     meta={"signal": "reduce_only_sell", "inventory": q},
                 ))
             elif q < 0:
@@ -159,6 +176,7 @@ class AvellanedaStoikovMM(BaseStrategy):
                     side="buy",
                     size=min(size, abs(q)),
                     limit_price=bid,
+                    order_type=self.order_type,
                     meta={"signal": "reduce_only_buy", "inventory": q},
                 ))
             return orders
@@ -170,6 +188,7 @@ class AvellanedaStoikovMM(BaseStrategy):
             side="buy",
             size=size,
             limit_price=bid,
+            order_type=self.order_type,
             meta={
                 "signal": "as_bid",
                 "reservation_price": round(r_price, 2),
@@ -185,6 +204,7 @@ class AvellanedaStoikovMM(BaseStrategy):
             side="sell",
             size=size,
             limit_price=ask,
+            order_type=self.order_type,
             meta={
                 "signal": "as_ask",
                 "reservation_price": round(r_price, 2),
