@@ -1,0 +1,66 @@
+Safer residual-close approach for Paradex dust positions
+====================================================
+
+Status
+- The attempted dust-sweep implementation was reverted after live testing.
+- It was not safe for unattended use because a tiny +0.01 SOL residual was converted into a -0.12 SOL short before a manual corrective order flattened it.
+
+Observed live behavior
+- Direct reduce_only IOC closes on tiny residuals can leave the residual unchanged.
+- A deliberate overshoot order can create a larger opposite-side position, but that is unsafe unless the follow-up hedge leg is guaranteed.
+- On Paradex, the overshoot leg is not guaranteed to complete as intended, so this should not be used automatically.
+
+Safer next approach candidates
+
+Option A — Abort-and-alert policy for dust
+- Keep current safe shutdown attempts:
+  1. up to 3 reduce_only IOC close attempts
+  2. re-sync from exchange after each attempt
+- If a residual remains below min_notional after those attempts:
+  - do not overshoot
+  - do not keep firing bumped orders unattended
+  - log a specific DUST_REMAINS condition with qty, min_notional, increment, side
+  - alert operator / report residual explicitly
+- Pros:
+  - safest
+  - no risk of flipping into a larger opposite position
+- Cons:
+  - leaves tiny residuals on exchange until manually cleaned
+
+Option B — Venue-specific manual cleanup command
+- Add a dedicated command for Paradex dust cleanup, run only manually:
+  - inspect current position
+  - if below min_notional, present the exact overshoot/hedge plan
+  - require explicit operator confirmation
+  - execute overshoot leg, then re-check and execute hedge leg immediately if needed
+- Pros:
+  - practical
+  - controlled side effects
+- Cons:
+  - not autonomous
+
+Option C — Exchange-native close/reduce endpoint if available
+- Investigate whether paradex_py or Paradex API exposes one of:
+  - close_position
+  - reduce-to-flat instruction
+  - market close / liquidate-style exact-close primitive
+  - reduce_only semantics that accept oversize qty but guarantee flat-without-flip
+- If such an endpoint exists, prefer it over synthetic two-leg dust sweeping.
+- Pros:
+  - likely the cleanest real fix
+- Cons:
+  - depends on venue capability
+
+Recommended policy right now
+- Use Option A immediately in production behavior.
+- Explore Option C next.
+- Keep Option B as an operator tool if needed.
+
+Implementation recommendation
+- Reverted state should remain:
+  - shutdown uses reduce_only IOC attempts only
+  - no automatic dust sweep overshoot logic
+- Future code change should be one of:
+  1. explicit dust-detected warning + final status report only, or
+  2. a separate operator-invoked cleanup command, or
+  3. a true Paradex-native exact-close flow if supported.
