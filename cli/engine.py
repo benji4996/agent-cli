@@ -436,21 +436,24 @@ class TradingEngine:
     def _close_all_positions(self) -> None:
         """Close all open positions on shutdown to avoid orphaned exposure."""
         agent_id = self.strategy.strategy_id
+        self._sync_positions_from_exchange()
         pos = self.position_tracker.get_agent_position(agent_id, self.instrument)
         if pos.net_qty == ZERO:
             return
 
-        close_side = "sell" if pos.net_qty > ZERO else "buy"
-
         if self.dry_run:
+            close_side = "sell" if pos.net_qty > ZERO else "buy"
             log.info("[DRY RUN] Shutdown close: %s %.6f @ marketable price", close_side, float(abs(pos.net_qty)))
             return
 
-        price_multipliers = [1.001, 1.003, 1.01] if close_side == "buy" else [0.999, 0.997, 0.99]
-        for attempt, multiplier in enumerate(price_multipliers, start=1):
+        for attempt in range(1, 4):
+            self._sync_positions_from_exchange()
             pos = self.position_tracker.get_agent_position(agent_id, self.instrument)
             if pos.net_qty == ZERO:
                 return
+
+            close_side = "sell" if pos.net_qty > ZERO else "buy"
+            multiplier = [0.999, 0.997, 0.99][attempt - 1] if close_side == "sell" else [1.001, 1.003, 1.01][attempt - 1]
             size = float(abs(pos.net_qty))
             try:
                 snapshot = self.hl.get_snapshot(self.instrument)
@@ -475,7 +478,6 @@ class TradingEngine:
             if fill:
                 self._apply_fills([fill], meta="shutdown_close")
                 log.info("Shutdown close filled immediately: %s %s @ %s", fill.side, fill.quantity, fill.price)
-                return
 
             time.sleep(0.5)
             collector = getattr(self.hl, "collect_new_fills", None)
@@ -539,6 +541,7 @@ class TradingEngine:
             log.warning("Position sync skipped: failed to fetch account state: %s", e)
             return
 
+        synced_position = Position(instrument=self.instrument)
         positions = account.get("positions") or []
         for raw in positions:
             symbol = str(raw.get("market") or raw.get("symbol") or raw.get("instrument") or "")
@@ -548,8 +551,14 @@ class TradingEngine:
                 raw_size = Decimal(str(raw.get("size") or 0))
             except Exception:
                 continue
-            if raw_size == ZERO:
-                continue
+            side = str(raw.get("side") or "").strip().upper()
+            signed_size = raw_size
+            if side == "SHORT" and raw_size > ZERO:
+                signed_size = -raw_size
+            elif side == "LONG" and raw_size < ZERO:
+                signed_size = abs(raw_size)
+            if signed_size == ZERO:
+                break
             avg_entry = Decimal(str(
                 raw.get("average_entry_price")
                 or raw.get("avg_entry_price")
@@ -558,21 +567,22 @@ class TradingEngine:
                 or 0
             ))
             realized = Decimal(str(raw.get("realized_positional_pnl") or 0)) + Decimal(str(raw.get("realized_positional_funding_pnl") or 0))
-            synced = Position(
+            synced_position = Position(
                 instrument=self.instrument,
-                net_qty=raw_size,
+                net_qty=signed_size,
                 avg_entry_price=avg_entry,
                 realized_pnl=realized,
             )
-            self.position_tracker.agent_positions[self.strategy.strategy_id][self.instrument] = synced
-            self.position_tracker.house_positions[self.instrument] = Position(
-                instrument=self.instrument,
-                net_qty=raw_size,
-                avg_entry_price=avg_entry,
-                realized_pnl=realized,
-            )
-            log.info("Synced exchange position: %s %s @ %s", raw_size, self.instrument, avg_entry)
-            return
+            log.info("Synced exchange position: %s %s @ %s", signed_size, self.instrument, avg_entry)
+            break
+
+        self.position_tracker.agent_positions[self.strategy.strategy_id][self.instrument] = synced_position
+        self.position_tracker.house_positions[self.instrument] = Position(
+            instrument=self.instrument,
+            net_qty=synced_position.net_qty,
+            avg_entry_price=synced_position.avg_entry_price,
+            realized_pnl=synced_position.realized_pnl,
+        )
 
     @staticmethod
     def _estimate_account_balance(account: Dict[str, Any]) -> float:

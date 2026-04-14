@@ -1,0 +1,17 @@
+Paradex recommended 25 bps SOL config
+=====================================
+
+Recommended config
+- configs/paradex_sol_avellaneda_25bps_recommended.yaml
+
+Source
+- Derived from option 4: configs/paradex_sol_avellaneda_25bps_035sol_hybrid_mid.yaml
+
+Why recommended
+- Preserves high fill activity from IOC-style execution
+- Reduced base size and inventory versus 0.5 SOL IOC profile
+- Produced much smaller short-run churn than option 3 in prior live test
+
+Caveat addressed
+- Earlier option-4 run revealed a shutdown flatten reliability issue when local and exchange position sign diverged.
+- Engine shutdown sync/flatten logic was patched afterward to resync from exchange and honor LONG/SHORT side sign before each close attempt.
