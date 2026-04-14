@@ -17,6 +17,9 @@ class TradingConfig:
     # Guard (Dynamic Stop Loss) — optional composable guard
     guard: Dict[str, Any] = field(default_factory=dict)
 
+    # Risk gate tuning — optional graduated gate overrides
+    risk_gate: Dict[str, Any] = field(default_factory=dict)
+
     # Anomaly protection — optional MEV protection for YEX markets
     protection: Dict[str, Any] = field(default_factory=dict)
 

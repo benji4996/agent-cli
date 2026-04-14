@@ -287,6 +287,20 @@ def run_cmd(
     if markout_tracker is not None:
         engine.markout_tracker = markout_tracker
 
+    # Optional Risk Guardian gate tuning
+    if cfg.risk_gate:
+        engine.risk_manager.configure_gate(
+            cooldown_duration_ms=int(cfg.risk_gate.get("cooldown_duration_ms", 1_800_000)),
+            cooldown_trigger_losses=int(cfg.risk_gate.get("cooldown_trigger_losses", 2)),
+            cooldown_drawdown_pct=float(cfg.risk_gate.get("cooldown_drawdown_pct", 50.0)),
+        )
+        typer.echo(
+            "Risk gate: "
+            f"losses={int(cfg.risk_gate.get('cooldown_trigger_losses', 2))}, "
+            f"cooldown_ms={int(cfg.risk_gate.get('cooldown_duration_ms', 1_800_000))}, "
+            f"drawdown_pct={float(cfg.risk_gate.get('cooldown_drawdown_pct', 50.0))}"
+        )
+
     # Attach Guard if configured
     if cfg.guard and cfg.guard.get("enabled"):
         from modules.guard_config import GuardConfig, PRESETS

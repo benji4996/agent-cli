@@ -1,0 +1,49 @@
+Paradex 10-tick A/B comparison after risk-gate config exposure
+Branch: paradex-live-validation
+Comparison performed after adding risk_gate YAML support and hybrid config.
+
+Configs compared
+1. configs/paradex_sol_avellaneda_autobump_tuned.yaml
+   - IOC, auto-bump, wider participation than makerish
+2. configs/paradex_sol_avellaneda_autobump_hybrid.yaml
+   - IOC, tighter inventory cap and tighter spread bounds than tuned
+3. configs/paradex_sol_avellaneda_autobump_makerish.yaml
+   - GTC maker-leaning config
+
+Shared risk gate overrides
+- cooldown_trigger_losses: 4
+- cooldown_duration_ms: 120000
+- cooldown_drawdown_pct: 75.0
+
+Observed 10-tick results
+- tuned IOC autobump:
+  - 20 placed, 7 filled
+  - local trades lines: 8
+  - risk_gate_cooldown: false
+  - one loss event
+  - runtime ~49s
+  - small negative PnL (~-0.00288 local summary extract)
+
+- hybrid IOC autobump:
+  - 20 placed, 2 filled
+  - local trades lines: 2
+  - risk_gate_cooldown: false
+  - one loss event
+  - runtime ~46s
+  - smaller negative PnL (~-0.00096 local summary extract)
+
+- makerish GTC autobump:
+  - 20 placed, 0 filled
+  - local trades lines: 0
+  - risk_gate_cooldown: false
+  - no loss events
+  - runtime ~52s
+  - flat PnL
+
+Interpretation
+- Exposing risk_gate settings reduced hair-trigger cooldown behavior for these short runs.
+- The hybrid profile looks like a middle ground:
+  - much lower churn than tuned IOC
+  - still produced some fills unlike makerish
+  - lower observed loss than tuned IOC in this short A/B window
+- Makerish remains too passive for a short 10-tick bounded run.

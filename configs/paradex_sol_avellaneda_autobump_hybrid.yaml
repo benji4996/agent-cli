@@ -1,13 +1,13 @@
 strategy: avellaneda_mm
 strategy_params:
-  gamma: 0.015
-  k: 22.0
+  gamma: 0.012
+  k: 23.0
   base_size: 0.05
-  max_inventory: 0.36
-  min_spread_bps: 1.5
-  max_spread_bps: 6.0
+  max_inventory: 0.30
+  min_spread_bps: 1.2
+  max_spread_bps: 5.0
   vol_window: 48
-  order_type: Gtc
+  order_type: Ioc
   ioc_cross_bps: 0.0
 
 instrument: SOL-USD-PERP
@@ -16,11 +16,11 @@ mainnet: true
 tick_interval: 2.0
 dry_run: false
 
-data_dir: data/paradex-sol-avellaneda-autobump-makerish
+data_dir: data/paradex-sol-avellaneda-autobump-hybrid
 log_level: INFO
 
-max_position_qty: 0.36
-max_notional_usd: 200
+max_position_qty: 0.30
+max_notional_usd: 150
 max_order_size: 0.12
 max_daily_drawdown_pct: 2.5
 max_leverage: 2.0
