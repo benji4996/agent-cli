@@ -50,7 +50,7 @@ class ParadexVenueAdapter(VenueAdapter):
 
     def capabilities(self) -> VenueCapabilities:
         return VenueCapabilities(
-            supports_alo=False,
+            supports_alo=True,
             supports_trigger_orders=False,
             supports_builder_fee=False,
             supports_cross_margin=False,

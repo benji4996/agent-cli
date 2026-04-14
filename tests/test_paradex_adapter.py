@@ -45,6 +45,11 @@ def test_get_snapshot_uses_summary_prices():
     assert snap.spread_bps > 0
 
 
+def test_capabilities_reports_alo_supported():
+    adapter = ParadexVenueAdapter(FakeProxy())
+    assert adapter.capabilities().supports_alo is True
+
+
 def test_place_order_does_not_treat_ack_as_fill():
     proxy = FakeProxy()
     adapter = ParadexVenueAdapter(proxy)

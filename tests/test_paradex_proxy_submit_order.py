@@ -37,4 +37,27 @@ def test_submit_order_builds_sdk_order_object():
     assert str(api.last_order.size) == "0.15"
     assert str(api.last_order.limit_price) == "86.12"
     assert api.last_order.client_id == "hermes-test"
+    assert api.last_order.instruction == "GTC"
     assert result["id"] == "abc123"
+
+
+def test_submit_order_maps_alo_to_post_only_instruction():
+    proxy = ParadexProxy(l2_private_key="0x1234", l2_address="0x" + "1" * 62, testnet=False)
+    proxy._authenticated = True
+    api = FakeAPIClient()
+    proxy._client = object()
+    proxy._api_client = api
+
+    proxy.submit_order(
+        {
+            "symbol": "SOL-USD-PERP",
+            "side": "SELL",
+            "size": 0.15,
+            "price": 86.12,
+            "time_in_force": "ALO",
+            "client_id": "hermes-alo",
+        }
+    )
+
+    assert api.last_order is not None
+    assert api.last_order.instruction == "POST_ONLY"

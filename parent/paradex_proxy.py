@@ -492,6 +492,8 @@ class ParadexProxy:
         size = Decimal(str(order.get("size") or order.get("qty") or order.get("quantity") or 0))
         price = Decimal(str(order.get("price") or order.get("limit_price") or 0))
         instruction = str(order.get("time_in_force") or order.get("instruction") or "GTC").upper()
+        if instruction == "ALO":
+            instruction = "POST_ONLY"
         client_id = str(order.get("client_id") or "")
         reduce_only = bool(order.get("reduce_only", False))
         order_id = order.get("order_id") or order.get("id")
