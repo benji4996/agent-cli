@@ -36,6 +36,7 @@ class OrderManager:
         dry_run: bool = False,
         builder: dict = None,
         router: Optional[OrderRouter] = None,
+        maker_refresh_interval_s: float = 0.0,
     ):
         self.hl = hl
         self.instrument = instrument
@@ -45,6 +46,8 @@ class OrderManager:
         self._total_placed = 0
         self._total_filled = 0
         self._twap = TWAPExecutor()
+        self._maker_refresh_interval_ms = max(0, int(float(maker_refresh_interval_s or 0.0) * 1000))
+        self._last_maker_quote_ms = 0
 
     def update(
         self,
@@ -56,8 +59,30 @@ class OrderManager:
 
         fills.extend(self._collect_exchange_fills())
 
+        passive_only = self._is_passive_only(decisions)
+        open_orders: List[Dict] = []
+        if not self.dry_run and passive_only and self._maker_refresh_interval_ms > 0:
+            open_orders = list(self.hl.get_open_orders(self.instrument) or [])
+
         # 1. Cancel any lingering open orders (safety net for IOC leftovers)
-        self.cancel_all()
+        if self._should_refresh_maker_quotes(decisions, snapshot, open_orders):
+            if open_orders:
+                self._cancel_orders(open_orders)
+            else:
+                self.cancel_all()
+        elif passive_only:
+            log.info(
+                "Preserving %d resting maker quotes for %s (refresh interval %.1fs not reached)",
+                len(open_orders),
+                self.instrument,
+                self._maker_refresh_interval_ms / 1000.0,
+            )
+            exchange_fills = self._collect_exchange_fills()
+            fills.extend(exchange_fills)
+            self._total_filled += len(exchange_fills)
+            return fills
+        else:
+            self.cancel_all()
 
         # 2. Process active TWAP orders
         twap_slices = self._twap.on_tick(snapshot)
@@ -130,6 +155,9 @@ class OrderManager:
                 fills.append(fill)
                 self._total_filled += 1
 
+        if passive_only and decisions:
+            self._last_maker_quote_ms = snapshot.timestamp_ms
+
         exchange_fills = self._collect_exchange_fills()
         fills.extend(exchange_fills)
         self._total_filled += len(exchange_fills)
@@ -169,11 +197,42 @@ class OrderManager:
             log.warning("Failed to collect exchange fills: %s", e)
             return []
 
-    def cancel_all(self) -> int:
-        """Cancel all open orders for the instrument."""
+    def _is_passive_only(self, decisions: List[StrategyDecision]) -> bool:
+        active = [d for d in decisions if d.action == "place_order" and d.size > 0 and d.limit_price > 0]
+        if not active:
+            return False
+        return all(str(d.order_type or "").lower() in {"gtc", "alo"} for d in active)
+
+    def _should_refresh_maker_quotes(
+        self,
+        decisions: List[StrategyDecision],
+        snapshot: MarketSnapshot,
+        open_orders: List[Dict],
+    ) -> bool:
+        if not self._is_passive_only(decisions) or self._maker_refresh_interval_ms <= 0:
+            return True
+
+        active_decisions = [d for d in decisions if d.action == "place_order" and d.size > 0 and d.limit_price > 0]
+        if not active_decisions:
+            return False
+        if not open_orders:
+            return True
+        if len(open_orders) < len(active_decisions):
+            return True
+
+        desired_sides = {str(d.side).lower() for d in active_decisions}
+        open_sides = {str(order.get("side") or "").lower() for order in open_orders}
+        if desired_sides - open_sides:
+            return True
+
+        if self._last_maker_quote_ms <= 0:
+            return True
+
+        return (snapshot.timestamp_ms - self._last_maker_quote_ms) >= self._maker_refresh_interval_ms
+
+    def _cancel_orders(self, open_orders: List[Dict]) -> int:
         if self.dry_run:
             return 0
-        open_orders = self.hl.get_open_orders(self.instrument)
         cancelled = 0
         for order in open_orders:
             oid = (
@@ -188,6 +247,13 @@ class OrderManager:
         if cancelled:
             log.info("Cancelled %d open orders", cancelled)
         return cancelled
+
+    def cancel_all(self) -> int:
+        """Cancel all open orders for the instrument."""
+        if self.dry_run:
+            return 0
+        open_orders = self.hl.get_open_orders(self.instrument)
+        return self._cancel_orders(open_orders)
 
     @property
     def stats(self) -> Dict[str, int]:

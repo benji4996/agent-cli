@@ -182,6 +182,50 @@ class TestCancelAll:
         hl.cancel_order.assert_any_call("SOL-USD-PERP", "px-order-3")
 
 
+class TestMakerQuoteRefresh:
+    def test_passive_orders_can_rest_until_refresh_interval(self):
+        hl = _mock_hl(fill_on_order=False)
+        mgr = OrderManager(hl, instrument="SOL-USD-PERP", maker_refresh_interval_s=12.0)
+        decision = StrategyDecision(
+            action="place_order", side="buy", size=0.15, limit_price=83.80,
+            instrument="SOL-USD-PERP", order_type="Alo",
+        )
+        first = _snapshot(83.85)
+        first.timestamp_ms = 1_000
+        mgr.update([decision], first)
+        assert hl.place_order.call_count == 1
+
+        hl.reset_mock()
+        hl.get_open_orders.return_value = [{"id": "resting-1", "side": "BUY"}]
+        second = _snapshot(83.86)
+        second.timestamp_ms = 3_000
+        fills = mgr.update([decision], second)
+
+        assert fills == []
+        hl.cancel_order.assert_not_called()
+        hl.place_order.assert_not_called()
+
+    def test_passive_orders_refresh_after_interval_expires(self):
+        hl = _mock_hl(fill_on_order=False)
+        mgr = OrderManager(hl, instrument="SOL-USD-PERP", maker_refresh_interval_s=12.0)
+        decision = StrategyDecision(
+            action="place_order", side="buy", size=0.15, limit_price=83.80,
+            instrument="SOL-USD-PERP", order_type="Alo",
+        )
+        first = _snapshot(83.85)
+        first.timestamp_ms = 1_000
+        mgr.update([decision], first)
+
+        hl.reset_mock()
+        hl.get_open_orders.return_value = [{"id": "resting-1", "side": "BUY"}]
+        later = _snapshot(83.90)
+        later.timestamp_ms = 14_000
+        mgr.update([decision], later)
+
+        hl.cancel_order.assert_called_once_with("SOL-USD-PERP", "resting-1")
+        hl.place_order.assert_called_once()
+
+
 class TestStats:
     def test_initial_stats(self):
         hl = _mock_hl()

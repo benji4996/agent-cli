@@ -281,6 +281,7 @@ def run_cmd(
         data_dir=cfg.data_dir,
         risk_limits=cfg.to_risk_limits(),
         builder=builder_info,
+        maker_refresh_interval_s=float(cfg.execution.get("maker_refresh_interval_s", 0.0) or 0.0),
     )
 
     # Attach markout tracker if protection is enabled

@@ -41,6 +41,7 @@ class TradingEngine:
         data_dir: str = "data/cli",
         risk_limits: Optional[RiskLimits] = None,
         builder: Optional[dict] = None,
+        maker_refresh_interval_s: float = 0.0,
     ):
         self.hl = hl
         self.strategy = strategy
@@ -52,7 +53,13 @@ class TradingEngine:
         # Reuse existing components (no modifications to core)
         self.position_tracker = PositionTracker()
         self.risk_manager = RiskManager(limits=risk_limits)
-        self.order_manager = OrderManager(hl, instrument=instrument, dry_run=dry_run, builder=builder)
+        self.order_manager = OrderManager(
+            hl,
+            instrument=instrument,
+            dry_run=dry_run,
+            builder=builder,
+            maker_refresh_interval_s=maker_refresh_interval_s,
+        )
 
         # Persistence
         self.state_db = StateDB(path=f"{data_dir}/state.db")
