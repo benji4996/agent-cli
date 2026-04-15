@@ -39,6 +39,7 @@ class ParadexVenueAdapter(VenueAdapter):
         min_notional_mode: str = "strict",
         auto_bump_buffer_pct: float = 0.0,
         passive_min_notional_mode: str = "strict",
+        reduce_only_min_notional_mode: str = "auto_bump",
     ):
         self._proxy = proxy
         self._seen_fill_ids: set[str] = set()
@@ -46,6 +47,7 @@ class ParadexVenueAdapter(VenueAdapter):
         self._min_notional_mode = (min_notional_mode or "strict").strip().lower()
         self._auto_bump_buffer_pct = max(0.0, float(auto_bump_buffer_pct or 0.0))
         self._passive_min_notional_mode = (passive_min_notional_mode or "strict").strip().lower()
+        self._reduce_only_min_notional_mode = (reduce_only_min_notional_mode or "auto_bump").strip().lower()
 
     def connect(self, private_key: str, testnet: bool = True) -> None:
         self._proxy.connect()
@@ -138,6 +140,7 @@ class ParadexVenueAdapter(VenueAdapter):
             price=quantized_price,
             tif=tif,
             metadata=metadata,
+            mode_override=self._reduce_only_min_notional_mode if reduce_only else None,
         )
         if adjusted_size is None:
             return None
@@ -247,8 +250,9 @@ class ParadexVenueAdapter(VenueAdapter):
         price: float,
         tif: str,
         metadata: Dict[str, object],
+        mode_override: Optional[str] = None,
     ) -> Optional[float]:
-        mode = self._min_notional_mode
+        mode = (mode_override or self._min_notional_mode or "strict").strip().lower()
         if price <= 0 or raw_size <= 0:
             log.warning(
                 "Skipping Paradex order with non-positive price/size: %s %s raw_size=%.6f quantized_size=%.6f price=%.6f tif=%s mode=%s",

@@ -33,6 +33,7 @@ builder:
 execution:
   paradex_min_notional_mode: strict
   paradex_passive_min_notional_mode: floor
+  paradex_reduce_only_min_notional_mode: auto_bump
   paradex_auto_bump_buffer_pct: 0.0
 
 risk_gate:

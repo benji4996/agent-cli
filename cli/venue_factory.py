@@ -73,6 +73,7 @@ def build_venue_adapter(*, venue: str, mainnet: bool = False, mock: bool = False
             min_notional_mode=str(execution_cfg.get("paradex_min_notional_mode", "strict")),
             auto_bump_buffer_pct=float(execution_cfg.get("paradex_auto_bump_buffer_pct", 0.0) or 0.0),
             passive_min_notional_mode=str(execution_cfg.get("paradex_passive_min_notional_mode", "strict")),
+            reduce_only_min_notional_mode=str(execution_cfg.get("paradex_reduce_only_min_notional_mode", "auto_bump")),
         )
         network = "mainnet" if mainnet else "testnet"
         return adapter, f"LIVE ({network})"
