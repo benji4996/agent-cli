@@ -217,12 +217,12 @@ class OrderManager:
             return False
         if not open_orders:
             return True
-        if len(open_orders) < len(active_decisions):
+        if len(open_orders) != len(active_decisions):
             return True
 
         desired_sides = {str(d.side).lower() for d in active_decisions}
         open_sides = {str(order.get("side") or "").lower() for order in open_orders}
-        if desired_sides - open_sides:
+        if desired_sides != open_sides:
             return True
 
         if self._last_maker_quote_ms <= 0:
