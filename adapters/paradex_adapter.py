@@ -191,7 +191,14 @@ class ParadexVenueAdapter(VenueAdapter):
         return fresh
 
     def cancel_order(self, instrument: str, oid: str) -> bool:
-        result = self._proxy.cancel_order(oid)
+        try:
+            result = self._proxy.cancel_order(oid)
+        except ValueError as e:
+            message = str(e)
+            if "ORDER_ID_NOT_FOUND" in message or "could not find order id" in message:
+                log.info("Paradex order %s already gone during cancel; treating as benign race", oid)
+                return True
+            raise
         return bool(result)
 
     def get_open_orders(self, instrument: str = "") -> List[Dict]:

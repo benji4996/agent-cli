@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from adapters.paradex_adapter import ParadexVenueAdapter
 
 
@@ -7,6 +9,7 @@ class FakeProxy:
     def __init__(self):
         self.submitted_orders = []
         self.fills = []
+        self.cancel_error = None
 
     def get_market_metadata(self, instrument: str):
         return {
@@ -32,6 +35,11 @@ class FakeProxy:
     def fetch_fills(self):
         return list(self.fills)
 
+    def cancel_order(self, oid):
+        if self.cancel_error is not None:
+            raise self.cancel_error
+        return {"id": oid, "status": "CANCELLED"}
+
 
 def test_get_snapshot_uses_summary_prices():
     adapter = ParadexVenueAdapter(FakeProxy())
@@ -56,6 +64,21 @@ def test_place_order_does_not_treat_ack_as_fill():
     fill = adapter.place_order("SOL-USD-PERP", "buy", 0.15, 83.9, tif="Gtc")
     assert fill is None
     assert len(proxy.submitted_orders) == 1
+
+
+def test_cancel_order_treats_missing_exchange_order_as_benign():
+    proxy = FakeProxy()
+    proxy.cancel_error = ValueError("ApiError(error='ORDER_ID_NOT_FOUND', message='could not find order id', data=None)")
+    adapter = ParadexVenueAdapter(proxy)
+    assert adapter.cancel_order("SOL-USD-PERP", "missing-order") is True
+
+
+def test_cancel_order_still_raises_unexpected_errors():
+    proxy = FakeProxy()
+    proxy.cancel_error = ValueError("ApiError(error='SOMETHING_ELSE', message='unexpected', data=None)")
+    adapter = ParadexVenueAdapter(proxy)
+    with pytest.raises(ValueError):
+        adapter.cancel_order("SOL-USD-PERP", "bad-order")
 
 
 def test_place_order_strict_mode_skips_sub_min_notional_order():
