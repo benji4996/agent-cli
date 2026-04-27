@@ -1,0 +1,52 @@
+strategy: avellaneda_mm
+strategy_params:
+  gamma: 0.03
+  k: 23.0
+  base_size: 1.0
+  max_inventory: 20.0
+  min_spread_bps: 18.0
+  max_spread_bps: 22.0
+  vol_window: 48
+  order_type: Alo
+  ioc_cross_bps: 0.0
+  close_only_at_profit: true
+
+instrument: SOL-USD-PERP
+venue: paradex
+mainnet: true
+tick_interval: 2.0
+dry_run: false
+
+data_dir: data/paradex-sol-profit-tuned-maker-only
+log_level: INFO
+
+max_position_qty: 20.0
+max_notional_usd: 2000
+max_order_size: 1.0
+max_daily_drawdown_pct: 2.5
+max_leverage: 2.0
+tvl: 3000
+
+builder:
+  builder_address: ""
+  fee_rate_tenths_bps: 0
+
+execution:
+  paradex_min_notional_mode: strict
+  paradex_passive_min_notional_mode: floor
+  paradex_reduce_only_min_notional_mode: auto_bump
+  paradex_auto_bump_buffer_pct: 0.0
+  paradex_http_timeout_s: 6.0
+  paradex_http_retry_max_retries: 2
+  paradex_http_retry_base_delay_s: 0.5
+  paradex_http_retry_max_delay_s: 2.0
+  paradex_api_circuit_breaker_threshold: 3
+  maker_refresh_interval_s: 2.0
+  close_positions_on_shutdown: true
+  inventory_alert_qty: 20.0
+
+risk_gate:
+  cooldown_trigger_losses: 6
+  cooldown_duration_ms: 300000
+  cooldown_drawdown_pct: 90.0
+  cooldown_close_losses: 2

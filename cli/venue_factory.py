@@ -65,15 +65,23 @@ def build_venue_adapter(*, venue: str, mainnet: bool = False, mock: bool = False
         cfg = cfg or TradingConfig(venue=normalized)
         private_key = cfg.get_private_key()
         address = resolve_wallet_address("paradex")
-        proxy = ParadexProxy(l2_private_key=private_key, l2_address=address, testnet=not mainnet)
+        proxy = ParadexProxy(
+            l2_private_key=private_key,
+            l2_address=address,
+            testnet=not mainnet,
+            http_timeout_s=cfg.get_execution_value("paradex_http_timeout_s", 15.0, float),
+            http_retry_max_retries=cfg.get_execution_value("paradex_http_retry_max_retries", 3, int),
+            http_retry_base_delay_s=cfg.get_execution_value("paradex_http_retry_base_delay_s", 1.0, float),
+            http_retry_max_delay_s=cfg.get_execution_value("paradex_http_retry_max_delay_s", 8.0, float),
+        )
         proxy.connect()
-        execution_cfg = cfg.execution or {}
         adapter = ParadexVenueAdapter(
             proxy,
-            min_notional_mode=str(execution_cfg.get("paradex_min_notional_mode", "strict")),
-            auto_bump_buffer_pct=float(execution_cfg.get("paradex_auto_bump_buffer_pct", 0.0) or 0.0),
-            passive_min_notional_mode=str(execution_cfg.get("paradex_passive_min_notional_mode", "strict")),
-            reduce_only_min_notional_mode=str(execution_cfg.get("paradex_reduce_only_min_notional_mode", "auto_bump")),
+            min_notional_mode=str(cfg.get_execution_value("paradex_min_notional_mode", "strict", str)),
+            auto_bump_buffer_pct=float(cfg.get_execution_value("paradex_auto_bump_buffer_pct", 0.0, float) or 0.0),
+            passive_min_notional_mode=str(cfg.get_execution_value("paradex_passive_min_notional_mode", "strict", str)),
+            reduce_only_min_notional_mode=str(cfg.get_execution_value("paradex_reduce_only_min_notional_mode", "auto_bump", str)),
+            api_circuit_breaker_threshold=int(cfg.get_execution_value("paradex_api_circuit_breaker_threshold", 5, int)),
         )
         network = "mainnet" if mainnet else "testnet"
         return adapter, f"LIVE ({network})"

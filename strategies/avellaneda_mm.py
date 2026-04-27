@@ -39,6 +39,7 @@ class AvellanedaStoikovMM(BaseStrategy):
         order_type: str = "Gtc",
         ioc_cross_bps: float = 0.0,
         toxicity_scorer=None,
+        close_only_at_profit: bool = False,
         **kwargs,
     ):
         super().__init__(strategy_id=strategy_id)
@@ -51,6 +52,7 @@ class AvellanedaStoikovMM(BaseStrategy):
         self.vol_window = vol_window
         self.order_type = order_type
         self.ioc_cross_bps = max(0.0, ioc_cross_bps)
+        self.close_only_at_profit = close_only_at_profit
 
         # Optional anomaly-driven toxicity scorer (anomaly_protection.AnomalyToxicityScorer)
         self._tox_scorer = toxicity_scorer
@@ -119,6 +121,17 @@ class AvellanedaStoikovMM(BaseStrategy):
         aggressive_sell = snapshot.bid * (1.0 - cross) if snapshot.bid > 0 else bid
         return max(bid, aggressive_buy), min(ask, aggressive_sell)
 
+    def _can_close_at_profit(self, side: str, price: float, avg_entry_price: Optional[float]) -> bool:
+        if not self.close_only_at_profit:
+            return True
+        if avg_entry_price is None or avg_entry_price <= 0:
+            return True
+        if side == "sell":
+            return price >= avg_entry_price
+        if side == "buy":
+            return price <= avg_entry_price
+        return True
+
     # ------------------------------------------------------------------
     # Tick
     # ------------------------------------------------------------------
@@ -135,6 +148,13 @@ class AvellanedaStoikovMM(BaseStrategy):
         # Inventory from context, else assume flat
         q = context.position_qty if context else 0.0
         reduce_only = context.reduce_only if context else False
+        avg_entry_price = None
+        if context and context.meta:
+            raw_avg_entry = context.meta.get("avg_entry_price")
+            try:
+                avg_entry_price = float(raw_avg_entry) if raw_avg_entry is not None else None
+            except (TypeError, ValueError):
+                avg_entry_price = None
 
         sigma = self._update_vol(mid)
         r_price = self._reservation_price(mid, q, sigma)
@@ -158,7 +178,7 @@ class AvellanedaStoikovMM(BaseStrategy):
         orders: List[StrategyDecision] = []
 
         if reduce_only:
-            # Only place orders that reduce position
+            # Safety path: always allow reducing orders, even if they realize a loss.
             if q > 0:
                 orders.append(StrategyDecision(
                     action="place_order",
@@ -181,7 +201,49 @@ class AvellanedaStoikovMM(BaseStrategy):
                 ))
             return orders
 
-        # Normal two-sided quoting
+        if self.close_only_at_profit:
+            # Profit-only mode suppresses inventory-increasing quotes. If the reducing
+            # side is profitable, keep only that take-profit quote live.
+            if q > 0:
+                if self._can_close_at_profit("sell", ask, avg_entry_price):
+                    orders.append(StrategyDecision(
+                        action="place_order",
+                        instrument=snapshot.instrument,
+                        side="sell",
+                        size=min(size, abs(q)),
+                        limit_price=ask,
+                        order_type=self.order_type,
+                        meta={
+                            "signal": "as_ask",
+                            "reservation_price": round(r_price, 2),
+                            "spread": round(raw_spread, 4),
+                            "sigma": round(sigma, 4),
+                            "inventory": q,
+                            "h_tox": round(h_tox, 6),
+                        },
+                    ))
+                return orders
+            if q < 0:
+                if self._can_close_at_profit("buy", bid, avg_entry_price):
+                    orders.append(StrategyDecision(
+                        action="place_order",
+                        instrument=snapshot.instrument,
+                        side="buy",
+                        size=min(size, abs(q)),
+                        limit_price=bid,
+                        order_type=self.order_type,
+                        meta={
+                            "signal": "as_bid",
+                            "reservation_price": round(r_price, 2),
+                            "spread": round(raw_spread, 4),
+                            "sigma": round(sigma, 4),
+                            "inventory": q,
+                            "h_tox": round(h_tox, 6),
+                        },
+                    ))
+                return orders
+
+        # Normal two-sided quoting from flat inventory.
         orders.append(StrategyDecision(
             action="place_order",
             instrument=snapshot.instrument,

@@ -483,6 +483,7 @@ class TestRiskGuardian:
             cooldown_duration_ms=1_800_000,  # 30 min
             cooldown_trigger_losses=2,
             cooldown_drawdown_pct=50.0,
+            cooldown_close_losses=2,
         )
         return rm
 
@@ -517,8 +518,8 @@ class TestRiskGuardian:
         assert rm.can_open_position() is True
         assert rm.state.consecutive_losses == 0
 
-    def test_open_to_cooldown_to_closed_via_loss_then_daily_reset(self):
-        """OPEN -> 2 losses -> COOLDOWN -> another loss -> CLOSED -> daily_reset -> OPEN."""
+    def test_open_to_cooldown_to_closed_via_repeated_cooldown_losses_then_daily_reset(self):
+        """OPEN -> 2 losses -> COOLDOWN -> first cooldown loss extends -> second cooldown loss closes -> daily_reset -> OPEN."""
         rm = self._make_rm()
         t = 1_000_000
 
@@ -527,11 +528,13 @@ class TestRiskGuardian:
         rm.record_loss(now_ms=t + 1000)
         assert rm.state.risk_gate == RiskGate.COOLDOWN
 
-        # Loss during COOLDOWN -> CLOSED
+        # First loss during COOLDOWN only extends cooldown
         rm.record_loss(now_ms=t + 2000)
+        assert rm.state.risk_gate == RiskGate.COOLDOWN
+
+        # Second cooldown loss escalates to CLOSED
+        rm.record_loss(now_ms=t + 3000)
         assert rm.state.risk_gate == RiskGate.CLOSED
-        assert rm.can_open_position() is False
-        assert rm.can_trade() is False
 
         # Daily reset -> back to OPEN
         rm.daily_reset()

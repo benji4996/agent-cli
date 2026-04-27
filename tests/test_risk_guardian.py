@@ -14,6 +14,7 @@ def rm() -> RiskManager:
         cooldown_duration_ms=1_800_000,
         cooldown_trigger_losses=2,
         cooldown_drawdown_pct=50.0,
+        cooldown_close_losses=2,
     )
     return mgr
 
@@ -92,14 +93,26 @@ def test_daily_loss_triggers_closed(rm: RiskManager):
     assert rm.state.safe_mode is True
 
 
-# ── Escalation: COOLDOWN + trigger → CLOSED ─────────────────────
+# ── Escalation: COOLDOWN losses extend cooldown before CLOSED ───
 
-def test_cooldown_plus_trigger_escalates_to_closed(rm: RiskManager):
+def test_cooldown_loss_extends_without_immediate_close(rm: RiskManager):
     rm.record_loss(now_ms=1000)
     rm.record_loss(now_ms=2000)
     assert rm.state.risk_gate == RiskGate.COOLDOWN
-    # Another loss while in COOLDOWN → CLOSED
+    # First additional loss during cooldown should extend cooldown, not close.
     rm.record_loss(now_ms=3000)
+    assert rm.state.risk_gate == RiskGate.COOLDOWN
+    assert rm.state.cooldown_losses == 1
+    assert rm.state.cooldown_entered_ts == 3000
+
+
+def test_cooldown_repeated_loss_escalates_to_closed(rm: RiskManager):
+    rm.record_loss(now_ms=1000)
+    rm.record_loss(now_ms=2000)
+    assert rm.state.risk_gate == RiskGate.COOLDOWN
+    rm.record_loss(now_ms=3000)
+    assert rm.state.risk_gate == RiskGate.COOLDOWN
+    rm.record_loss(now_ms=4000)
     assert rm.state.risk_gate == RiskGate.CLOSED
 
 

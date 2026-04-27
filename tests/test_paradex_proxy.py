@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -48,3 +49,25 @@ def test_paradex_proxy_rejects_mismatched_env_l1_address(monkeypatch):
             l2_private_key=TEST_L2_KEY,
             l2_address=TEST_L2_ADDRESS,
         )
+
+
+def test_configure_http_resilience_sets_timeout_and_retry_strategy():
+    proxy = ParadexProxy(
+        l2_private_key=TEST_L2_KEY,
+        l2_address=TEST_L2_ADDRESS,
+        http_timeout_s=17.0,
+        http_retry_max_retries=5,
+        http_retry_base_delay_s=0.25,
+        http_retry_max_delay_s=3.5,
+    )
+    api_client = SimpleNamespace(default_timeout=None, retry_strategy=None)
+    proxy._api_client = api_client
+    proxy._client = SimpleNamespace(api_client=api_client)
+
+    proxy._configure_http_resilience()
+
+    assert api_client.default_timeout == 17.0
+    assert api_client.retry_strategy is not None
+    assert api_client.retry_strategy.max_retries == 5
+    assert api_client.retry_strategy.base_delay == 0.25
+    assert api_client.retry_strategy.max_delay == 3.5

@@ -34,6 +34,7 @@ def _make_engine(hl):
     engine.position_tracker = PositionTracker()
     engine.dry_run = False
     engine.builder = None
+    engine.close_positions_on_shutdown = True
     engine._apply_fills = lambda fills, meta=None: None
     return engine
 
@@ -98,3 +99,24 @@ def test_close_all_positions_uses_synced_exchange_sign_before_shutdown_order():
     assert hl.placed[0]["side"] == "sell"
     assert hl.placed[0]["tif"] == "Ioc"
     assert hl.placed[0]["reduce_only"] is True
+
+
+
+def test_shutdown_skips_flatten_when_disabled(monkeypatch):
+    engine = _make_engine(_HLStub({"positions": []}))
+    engine.close_positions_on_shutdown = False
+    engine.order_manager = SimpleNamespace(cancel_all=lambda: None, stats={"total_placed": 0, "total_filled": 0})
+    engine.state_db = SimpleNamespace(close=lambda: None)
+    engine.markout_tracker = None
+    engine.tick_count = 0
+    engine.start_time_ms = 0
+    engine._persist_state = lambda: None
+    engine.position_tracker.apply_fill("avellaneda_mm", "SOL-USD-PERP", "buy", Decimal("0.12"), Decimal("100"))
+
+    calls = {"close_all": 0}
+    engine._close_all_positions = lambda: calls.__setitem__("close_all", calls["close_all"] + 1)
+    monkeypatch.setattr("cli.engine.shutdown_summary", lambda *args, **kwargs: "summary")
+
+    engine._shutdown()
+
+    assert calls["close_all"] == 0

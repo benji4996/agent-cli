@@ -5,7 +5,10 @@ import os
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional, TypeVar, cast
+
+
+T = TypeVar("T")
 
 
 @dataclass
@@ -97,6 +100,20 @@ class TradingConfig:
         if self.builder:
             return BuilderFeeConfig.from_dict(self.builder)
         return BuilderFeeConfig.from_env()
+
+    def get_execution_value(self, key: str, default: T, cast_fn: Callable[[Any], T] | None = None) -> T:
+        env_key = key.upper()
+        if env_key in os.environ:
+            raw = os.environ[env_key]
+            if cast_fn is None:
+                return cast(T, raw)
+            return cast_fn(raw)
+        if key in self.execution:
+            raw = self.execution[key]
+            if cast_fn is None:
+                return cast(T, raw)
+            return cast_fn(raw)
+        return default
 
     def get_private_key(self) -> str:
         from common.credentials import resolve_private_key

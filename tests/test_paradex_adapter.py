@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import pytest
+
+import adapters.paradex_adapter as paradex_adapter_module
 from adapters.paradex_adapter import ParadexVenueAdapter
+from common.exceptions import VenueCircuitBreakerOpen
 
 
 class FakeProxy:
@@ -33,6 +37,27 @@ class FakeProxy:
         return list(self.fills)
 
 
+class FailingProxy(FakeProxy):
+    def __init__(self, exc: Exception):
+        super().__init__()
+        self.exc = exc
+
+    def get_market_metadata(self, instrument: str):
+        raise self.exc
+
+
+class ZeroPriceProxy(FakeProxy):
+    def get_market_summary(self, instrument: str):
+        return {
+            "best_bid": "0",
+            "best_ask": "0",
+            "mark_price": "0",
+            "volume_24h": "0",
+            "open_interest": "0",
+        }
+
+
+
 def test_get_snapshot_uses_summary_prices():
     adapter = ParadexVenueAdapter(FakeProxy())
     snap = adapter.get_snapshot("SOL-USD-PERP")
@@ -48,6 +73,61 @@ def test_get_snapshot_uses_summary_prices():
 def test_capabilities_reports_alo_supported():
     adapter = ParadexVenueAdapter(FakeProxy())
     assert adapter.capabilities().supports_alo is True
+
+
+def test_get_snapshot_returns_empty_snapshot_before_circuit_breaker_opens():
+    adapter = ParadexVenueAdapter(FailingProxy(RuntimeError("boom")), api_circuit_breaker_threshold=2)
+    snap = adapter.get_snapshot("SOL-USD-PERP")
+    assert snap.instrument == "SOL-USD-PERP"
+    assert snap.mid_price == 0.0
+
+
+def test_get_snapshot_opens_circuit_breaker_after_threshold_failures():
+    adapter = ParadexVenueAdapter(FailingProxy(RuntimeError("boom")), api_circuit_breaker_threshold=2)
+    adapter.get_snapshot("SOL-USD-PERP")
+    with pytest.raises(VenueCircuitBreakerOpen):
+        adapter.get_snapshot("SOL-USD-PERP")
+
+
+
+def test_get_snapshot_allows_recovery_after_breaker_cooldown(monkeypatch):
+    proxy = FailingProxy(RuntimeError("boom"))
+    adapter = ParadexVenueAdapter(
+        proxy,
+        api_circuit_breaker_threshold=2,
+        api_circuit_breaker_cooldown_s=5.0,
+    )
+    adapter.get_snapshot("SOL-USD-PERP")
+    with pytest.raises(VenueCircuitBreakerOpen):
+        adapter.get_snapshot("SOL-USD-PERP")
+
+    now = {"value": 100.0}
+    monkeypatch.setattr(paradex_adapter_module.time, "time", lambda: now["value"])
+    adapter._api_circuit_opened_at = now["value"]
+
+    with pytest.raises(VenueCircuitBreakerOpen):
+        adapter.get_snapshot("SOL-USD-PERP")
+
+    now["value"] += 6.0
+    proxy.exc = None
+    proxy.get_market_metadata = lambda instrument: {
+        "symbol": instrument,
+        "price_tick_size": "0.001",
+        "order_size_increment": "0.01",
+        "min_notional": "10",
+    }
+    snap = adapter.get_snapshot("SOL-USD-PERP")
+    assert snap.mid_price == 83.8975
+    assert adapter._api_failure_count == 0
+
+
+
+def test_successful_zero_price_snapshot_resets_failure_counter():
+    adapter = ParadexVenueAdapter(ZeroPriceProxy(), api_circuit_breaker_threshold=2)
+    adapter._api_failure_count = 1
+    snap = adapter.get_snapshot("SOL-USD-PERP")
+    assert snap.mid_price == 0.0
+    assert adapter._api_failure_count == 0
 
 
 def test_place_order_does_not_treat_ack_as_fill():

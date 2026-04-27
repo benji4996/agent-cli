@@ -51,6 +51,10 @@ class ParadexProxy:
         l2_address: Optional[str] = None,
         testnet: bool = True,
         jwt_refresh_after_s: int = 180,
+        http_timeout_s: float = 15.0,
+        http_retry_max_retries: int = 3,
+        http_retry_base_delay_s: float = 1.0,
+        http_retry_max_delay_s: float = 8.0,
     ):
         self.testnet = testnet
         self.l1_private_key = l1_private_key
@@ -59,6 +63,10 @@ class ParadexProxy:
         self.l2_private_key = l2_private_key or resolve_private_key("paradex")
         self.l2_address = self._resolve_l2_address(l2_address)
         self.jwt_refresh_after_s = jwt_refresh_after_s
+        self.http_timeout_s = float(http_timeout_s)
+        self.http_retry_max_retries = int(http_retry_max_retries)
+        self.http_retry_base_delay_s = float(http_retry_base_delay_s)
+        self.http_retry_max_delay_s = float(http_retry_max_delay_s)
 
         self._client = None
         self._api_client = None
@@ -358,6 +366,7 @@ class ParadexProxy:
                 self._client = klass(**kwargs)
                 self._api_client = getattr(self._client, "api_client", None)
                 self._ws_client = getattr(self._client, "ws_client", None)
+                self._configure_http_resilience()
                 log.info("Paradex client initialized: env=%s address=%s", self.sdk_env, self.l2_address)
                 return
             except TypeError as e:
@@ -368,6 +377,30 @@ class ParadexProxy:
                 break
 
         raise RuntimeError(f"Failed to initialize Paradex SDK client: {last_error}")
+
+    def _configure_http_resilience(self) -> None:
+        api_client = self._api_client or getattr(self._client, "api_client", None)
+        if api_client is None:
+            return
+
+        # ParadexSubkey/ParadexL2 currently construct the REST client without
+        # explicit timeouts or retry/backoff settings, so transient TLS handshake
+        # stalls can bubble straight into the engine tick loop.
+        try:
+            from paradex_py.api.protocols import DefaultRetryStrategy  # type: ignore
+        except Exception:
+            DefaultRetryStrategy = None  # type: ignore[assignment]
+
+        if hasattr(api_client, "default_timeout"):
+            api_client.default_timeout = self.http_timeout_s
+        if DefaultRetryStrategy is not None and hasattr(api_client, "retry_strategy"):
+            api_client.retry_strategy = DefaultRetryStrategy(
+                max_retries=self.http_retry_max_retries,
+                base_delay=self.http_retry_base_delay_s,
+                max_delay=self.http_retry_max_delay_s,
+            )
+
+        self._api_client = api_client
 
     def _authenticate_if_needed(self, *, force: bool) -> None:
         self._ensure_client()

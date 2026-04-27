@@ -13,7 +13,7 @@ class DummyStrategy:
 class DummyEngine:
     captured = {}
 
-    def __init__(self, hl, strategy, instrument, tick_interval, dry_run, data_dir, risk_limits, builder):
+    def __init__(self, hl, strategy, instrument, tick_interval, dry_run, data_dir, risk_limits, builder, maker_refresh_interval_s=0.0, close_positions_on_shutdown=True, inventory_alert_qty=0.0):
         self.markout_tracker = None
         DummyEngine.captured = {
             "instrument": instrument,
@@ -21,6 +21,9 @@ class DummyEngine:
             "dry_run": dry_run,
             "data_dir": data_dir,
             "strategy_id": strategy.strategy_id,
+            "maker_refresh_interval_s": maker_refresh_interval_s,
+            "close_positions_on_shutdown": close_positions_on_shutdown,
+            "inventory_alert_qty": inventory_alert_qty,
         }
 
     def run(self, max_ticks: int, resume: bool) -> None:
@@ -103,3 +106,31 @@ def test_run_cli_flags_override_yaml_when_explicit(monkeypatch, tmp_path):
     assert DummyEngine.captured["tick_interval"] == 5.0
     assert DummyEngine.captured["data_dir"] == str(tmp_path / "override-data")
     assert DummyEngine.captured["max_ticks"] == 7
+
+
+
+def test_run_respects_string_false_for_close_positions_on_shutdown(monkeypatch, tmp_path):
+    cfg_path = tmp_path / "paradex.yaml"
+    cfg_path.write_text(
+        "\n".join(
+            [
+                "strategy: avellaneda_mm",
+                "instrument: SOL-USD-PERP",
+                "venue: paradex",
+                "mainnet: true",
+                "execution:",
+                "  close_positions_on_shutdown: 'false'",
+            ]
+        )
+    )
+
+    monkeypatch.setattr("cli.commands.run.build_venue_adapter", lambda venue, mainnet, mock, cfg=None: (object(), "LIVE"))
+    monkeypatch.setattr("cli.strategy_registry.resolve_strategy_path", lambda strategy: "dummy:Strategy")
+    monkeypatch.setattr("sdk.strategy_sdk.loader.load_strategy", lambda path: DummyStrategy)
+    monkeypatch.setattr("cli.engine.TradingEngine", DummyEngine)
+
+    result = CliRunner().invoke(app, ["run", "avellaneda_mm", "--config", str(cfg_path), "--fresh"])
+
+    assert result.exit_code == 0, result.output
+    assert DummyEngine.captured["close_positions_on_shutdown"] is False
+    assert "Shutdown close: disabled" in result.output
