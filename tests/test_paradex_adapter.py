@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import httpx
 import pytest
 
 from adapters.paradex_adapter import ParadexVenueAdapter
@@ -9,7 +10,9 @@ class FakeProxy:
     def __init__(self):
         self.submitted_orders = []
         self.fills = []
+        self.open_orders = []
         self.cancel_error = None
+        self.fetch_orders_error = None
 
     def get_market_metadata(self, instrument: str):
         return {
@@ -34,6 +37,11 @@ class FakeProxy:
 
     def fetch_fills(self):
         return list(self.fills)
+
+    def fetch_orders(self):
+        if self.fetch_orders_error is not None:
+            raise self.fetch_orders_error
+        return list(self.open_orders)
 
     def cancel_order(self, oid):
         if self.cancel_error is not None:
@@ -79,6 +87,26 @@ def test_cancel_order_still_raises_unexpected_errors():
     adapter = ParadexVenueAdapter(proxy)
     with pytest.raises(ValueError):
         adapter.cancel_order("SOL-USD-PERP", "bad-order")
+
+
+def test_get_open_orders_treats_read_timeout_as_transient_empty_result():
+    proxy = FakeProxy()
+    proxy.fetch_orders_error = httpx.ReadTimeout("timed out")
+    adapter = ParadexVenueAdapter(proxy)
+    assert adapter.get_open_orders("SOL-USD-PERP") == []
+
+
+def test_place_order_treats_cancel_only_mode_as_noop():
+    proxy = FakeProxy()
+    proxy.cancel_error = None
+    adapter = ParadexVenueAdapter(proxy)
+    proxy.submitted_orders.clear()
+
+    def _raise_cancel_only(order):
+        raise ValueError("ApiError(error='SYSTEM_STATUS_CANCEL_ONLY', message='system status is CANCEL_ONLY, only cancel orders are allowed', data=None)")
+
+    proxy.submit_order = _raise_cancel_only
+    assert adapter.place_order("SOL-USD-PERP", "buy", 0.15, 83.9, tif="Gtc") is None
 
 
 def test_place_order_strict_mode_skips_sub_min_notional_order():

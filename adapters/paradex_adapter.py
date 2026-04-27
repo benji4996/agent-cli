@@ -10,6 +10,8 @@ import math
 import time
 from typing import Dict, List, Optional
 
+import httpx
+
 from common.models import MarketSnapshot
 from common.venue_adapter import Fill, VenueAdapter, VenueCapabilities
 from parent.paradex_proxy import ParadexFill, ParadexProxy
@@ -154,7 +156,17 @@ class ParadexVenueAdapter(VenueAdapter):
         }
         if builder:
             log.debug("Ignoring builder fee payload for Paradex order: %s", builder)
-        self._proxy.submit_order(order)
+        try:
+            self._proxy.submit_order(order)
+        except ValueError as e:
+            message = str(e)
+            if "SYSTEM_STATUS_CANCEL_ONLY" in message or "only cancel orders are allowed" in message:
+                log.warning(
+                    "Paradex entered cancel-only mode; skipping new %s %s order this tick",
+                    side.upper(), instrument,
+                )
+                return None
+            raise
         return None
 
     def collect_new_fills(self, instrument: str = "") -> List[Fill]:
@@ -202,7 +214,11 @@ class ParadexVenueAdapter(VenueAdapter):
         return bool(result)
 
     def get_open_orders(self, instrument: str = "") -> List[Dict]:
-        orders = self._proxy.fetch_orders()
+        try:
+            orders = self._proxy.fetch_orders()
+        except httpx.ReadTimeout:
+            log.warning("Paradex fetch_orders timed out; treating open-order snapshot as unavailable for this tick")
+            return []
         if not instrument:
             return orders
         instrument_upper = instrument.upper()
