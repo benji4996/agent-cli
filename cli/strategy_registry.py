@@ -94,6 +94,11 @@ STRATEGY_REGISTRY: Dict[str, Dict[str, Any]] = {
         "description": "EMA crossover + ADX trend strength filter — avoid chop, catch sustained moves",
         "params": {"size": 1.0},
     },
+    "cross_exchange_arb": {
+        "path": "strategies.cross_exchange_arb:CrossExchangeArbStrategy",
+        "description": "HL ↔ Paradex top-of-book paired arbitrage",
+        "params": {"base_size": 0.1, "min_profit_bps": 5.0},
+    },
 }
 
 # YEX market definitions — Nunchi HIP-3 yield perpetuals

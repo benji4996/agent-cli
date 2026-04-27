@@ -1,0 +1,42 @@
+strategy: cross_exchange_arb
+asset: SOL
+mainnet: true
+tick_interval: 2.0
+max_ticks: 0
+data_dir: data/arb/hl-paradex-sol
+log_level: INFO
+
+venues:
+  hl:
+    venue: hl
+    instrument: SOL-PERP
+  paradex:
+    venue: paradex
+    instrument: SOL-USD-PERP
+
+strategy_params:
+  min_profit_bps: 5.0
+  slippage_buffer_bps: 3.0
+  hl_taker_fee_bps: 4.0
+  paradex_taker_fee_bps: 3.0
+  base_size: 0.1
+  max_size: 0.25
+  max_net_exposure: 0.05
+  order_type: Ioc
+
+risk:
+  max_net_exposure: 0.05
+  max_venue_position: 0.5
+  max_residual_qty: 0.03
+  max_daily_loss_usd: 25.0
+  stop_on_hedge_failure: true
+
+execution:
+  hedge_repair_attempts: 0
+  hedge_repair_slippage_bps: 10.0
+  cancel_before_each_tick: true
+  paradex_http_timeout_s: 6.0
+  paradex_http_retry_max_retries: 2
+  paradex_http_retry_base_delay_s: 0.5
+  paradex_http_retry_max_delay_s: 2.0
+  paradex_api_circuit_breaker_threshold: 3

@@ -9,7 +9,7 @@ strategy_params:
   vol_window: 48
   order_type: Alo
   ioc_cross_bps: 0.0
-  close_only_at_profit: true
+  close_only_at_profit: false
 
 instrument: SOL-USD-PERP
 venue: paradex
@@ -42,7 +42,7 @@ execution:
   paradex_http_retry_max_delay_s: 2.0
   paradex_api_circuit_breaker_threshold: 3
   maker_refresh_interval_s: 2.0
-  close_positions_on_shutdown: true
+  close_positions_on_shutdown: false
   inventory_alert_qty: 20.0
 
 risk_gate:

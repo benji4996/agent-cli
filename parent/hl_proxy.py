@@ -271,7 +271,12 @@ class HLProxy:
 
         base_url = constants.TESTNET_API_URL if self.testnet else constants.MAINNET_API_URL
         perp_dexs = [""] + list(HIP3_DEXS.keys())
-        self._info = Info(base_url, skip_ws=True, timeout=10, perp_dexs=perp_dexs)
+        try:
+            self._info = Info(base_url, skip_ws=True, timeout=10, perp_dexs=perp_dexs)
+        except KeyError as e:
+            log.warning("HL SDK does not expose perp dex %s on this network; falling back to core perps only", e)
+            perp_dexs = [""]
+            self._info = Info(base_url, skip_ws=True, timeout=10, perp_dexs=perp_dexs)
 
         account = Account.from_key(self.private_key)
         delegated = self._account_address
@@ -286,7 +291,7 @@ class HLProxy:
             log.info("HL client initialized: %s (testnet=%s)", self._address, self.testnet)
 
         # Enable HIP-3 DEX abstraction for agent trading
-        if HIP3_DEXS:
+        if any(dex for dex in perp_dexs):
             try:
                 self._exchange.agent_enable_dex_abstraction()
                 log.info("HIP-3 DEX abstraction enabled")

@@ -36,6 +36,7 @@ from cli.commands.skills import skills_app
 from cli.commands.journal import journal_app
 from cli.commands.keys import keys_app
 from cli.commands.paradex import paradex_app
+from cli.commands.arb import arb_app
 
 app.command("run", help="Start autonomous trading with a strategy")(run_cmd)
 app.command("status", help="Show positions, PnL, and risk state")(status_cmd)
@@ -55,6 +56,7 @@ app.add_typer(skills_app, name="skills", help="Skill discovery and registry")
 app.add_typer(journal_app, name="journal", help="Trade journal — structured position records with reasoning")
 app.add_typer(keys_app, name="keys", help="Unified key management across backends")
 app.add_typer(paradex_app, name="paradex", help="Paradex operator utilities")
+app.add_typer(arb_app, name="arb", help="Cross-venue arbitrage")
 
 
 def main():
