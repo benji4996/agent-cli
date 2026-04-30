@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pytest
 
+from parent.position_tracker import PositionTracker
 from parent.risk_manager import RiskGate, RiskManager, RiskState
 
 
@@ -14,6 +15,7 @@ def rm() -> RiskManager:
         cooldown_duration_ms=1_800_000,
         cooldown_trigger_losses=2,
         cooldown_drawdown_pct=50.0,
+        cooldown_close_losses=2,
     )
     return mgr
 
@@ -92,14 +94,26 @@ def test_daily_loss_triggers_closed(rm: RiskManager):
     assert rm.state.safe_mode is True
 
 
-# ── Escalation: COOLDOWN + trigger → CLOSED ─────────────────────
+# ── Escalation: COOLDOWN losses extend cooldown before CLOSED ───
 
-def test_cooldown_plus_trigger_escalates_to_closed(rm: RiskManager):
+def test_cooldown_loss_extends_without_immediate_close(rm: RiskManager):
     rm.record_loss(now_ms=1000)
     rm.record_loss(now_ms=2000)
     assert rm.state.risk_gate == RiskGate.COOLDOWN
-    # Another loss while in COOLDOWN → CLOSED
+    # First additional loss during cooldown should extend cooldown, not close.
     rm.record_loss(now_ms=3000)
+    assert rm.state.risk_gate == RiskGate.COOLDOWN
+    assert rm.state.cooldown_losses == 1
+    assert rm.state.cooldown_entered_ts == 3000
+
+
+def test_cooldown_repeated_loss_escalates_to_closed(rm: RiskManager):
+    rm.record_loss(now_ms=1000)
+    rm.record_loss(now_ms=2000)
+    assert rm.state.risk_gate == RiskGate.COOLDOWN
+    rm.record_loss(now_ms=3000)
+    assert rm.state.risk_gate == RiskGate.COOLDOWN
+    rm.record_loss(now_ms=4000)
     assert rm.state.risk_gate == RiskGate.CLOSED
 
 
@@ -112,6 +126,22 @@ def test_daily_reset_closed_to_open(rm: RiskManager):
     assert rm.state.risk_gate == RiskGate.OPEN
     assert rm.state.consecutive_losses == 0
     assert rm.state.cooldown_entered_ts == 0
+
+
+def test_automatic_day_boundary_reset_keeps_daily_drawdown_safe_mode_active(rm: RiskManager):
+    rm.state.safe_mode = True
+    rm.state.safe_mode_reason = "daily_drawdown_breach"
+    rm.state.reduce_only = True
+    rm.state.daily_drawdown = rm.limits.max_daily_drawdown_abs
+    rm.state.day_start_ms = 0
+
+    ok, reason = rm.pre_round_check(positions=PositionTracker(), mark_prices={})
+
+    assert ok is False
+    assert reason == "Safe mode active: daily_drawdown_breach"
+    assert rm.state.safe_mode is True
+    assert rm.state.safe_mode_reason == "daily_drawdown_breach"
+    assert rm.state.reduce_only is True
 
 
 # ── can_open_position / can_trade ────────────────────────────────

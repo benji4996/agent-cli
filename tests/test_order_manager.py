@@ -181,6 +181,20 @@ class TestCancelAll:
         hl.cancel_order.assert_any_call("SOL-USD-PERP", "px-order-2")
         hl.cancel_order.assert_any_call("SOL-USD-PERP", "px-order-3")
 
+    def test_cancel_all_retries_until_exchange_reports_no_open_orders(self):
+        hl = _mock_hl()
+        hl.get_open_orders.side_effect = [
+            [{"id": "px-order-1"}],
+            [{"id": "px-order-2"}],
+            [],
+        ]
+        mgr = OrderManager(hl, instrument="SOL-USD-PERP")
+        count = mgr.cancel_all()
+        assert count == 2
+        assert hl.get_open_orders.call_count == 3
+        hl.cancel_order.assert_any_call("SOL-USD-PERP", "px-order-1")
+        hl.cancel_order.assert_any_call("SOL-USD-PERP", "px-order-2")
+
 
 class TestMakerQuoteRefresh:
     def test_passive_orders_can_rest_until_refresh_interval(self):

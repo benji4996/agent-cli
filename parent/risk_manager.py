@@ -103,6 +103,7 @@ class RiskState:
     cooldown_entered_ts: int = 0
     # Per-wallet blocked state (wallet_id → reason)
     blocked_wallets: Dict[str, str] = field(default_factory=dict)
+    cooldown_losses: int = 0
     # Price history for circuit breaker detection
     price_history: Dict[str, List[Tuple[int, str]]] = field(default_factory=dict)
 
@@ -120,6 +121,7 @@ class RiskState:
             "consecutive_losses": self.consecutive_losses,
             "cooldown_entered_ts": self.cooldown_entered_ts,
             "blocked_wallets": self.blocked_wallets,
+            "cooldown_losses": self.cooldown_losses,
         }
 
     @classmethod
@@ -139,6 +141,7 @@ class RiskState:
             consecutive_losses=data.get("consecutive_losses", 0),
             cooldown_entered_ts=data.get("cooldown_entered_ts", 0),
             blocked_wallets=data.get("blocked_wallets", {}),
+            cooldown_losses=data.get("cooldown_losses", 0),
         )
 
 
@@ -281,6 +284,7 @@ class RiskManager:
         """Transition to COOLDOWN state."""
         self.state.risk_gate = RiskGate.COOLDOWN
         self.state.cooldown_entered_ts = now_ms
+        self.state.cooldown_losses = 0
         log.warning("RISK GATE → COOLDOWN: %s", reason)
 
     def _enter_closed(self, reason: str) -> None:
@@ -291,24 +295,38 @@ class RiskManager:
         log.critical("RISK GATE → CLOSED: %s", reason)
 
     def record_loss(self, now_ms: Optional[int] = None) -> None:
-        """Record a losing trade.  Increments consecutive loss counter and
-        may escalate the gate: OPEN → COOLDOWN → CLOSED."""
+        """Record a losing trade.
+
+        OPEN -> COOLDOWN after N consecutive losses.
+        While already in COOLDOWN, additional losses extend/reset the cooldown window
+        and only escalate to CLOSED after a separate cooldown-loss threshold.
+        """
         if now_ms is None:
             now_ms = int(time.time() * 1000)
 
         self.state.consecutive_losses += 1
         threshold = getattr(self, "_cooldown_trigger_losses", 2)
+        cooldown_close_losses = getattr(self, "_cooldown_close_losses", 2)
 
         if self.state.risk_gate == RiskGate.OPEN:
             if self.state.consecutive_losses >= threshold:
                 self._enter_cooldown(now_ms, f"{self.state.consecutive_losses} consecutive losses")
         elif self.state.risk_gate == RiskGate.COOLDOWN:
-            # Already in cooldown and another trigger → escalate to CLOSED
-            self._enter_closed("loss_during_cooldown")
+            self.state.cooldown_losses += 1
+            self.state.cooldown_entered_ts = now_ms
+            if self.state.cooldown_losses >= cooldown_close_losses:
+                self._enter_closed("loss_during_cooldown")
+            else:
+                log.warning(
+                    "RISK GATE → COOLDOWN: extending cooldown after loss %d/%d during cooldown",
+                    self.state.cooldown_losses,
+                    cooldown_close_losses,
+                )
 
     def record_win(self) -> None:
         """Record a winning trade.  Resets the consecutive loss counter."""
         self.state.consecutive_losses = 0
+        self.state.cooldown_losses = 0
 
     def check_drawdown(self, current_drawdown: float, limit: float) -> None:
         """If drawdown >= cooldown_drawdown_pct% of limit → COOLDOWN.
@@ -337,12 +355,14 @@ class RiskManager:
         if now_ms - self.state.cooldown_entered_ts >= duration:
             self.state.risk_gate = RiskGate.OPEN
             self.state.consecutive_losses = 0
+            self.state.cooldown_losses = 0
             log.info("RISK GATE → OPEN: cooldown auto-expired")
 
     def daily_reset(self) -> None:
         """Reset gate to OPEN and clear counters (called at day boundary)."""
         self.state.risk_gate = RiskGate.OPEN
         self.state.consecutive_losses = 0
+        self.state.cooldown_losses = 0
         self.state.cooldown_entered_ts = 0
         log.info("RISK GATE → OPEN: daily reset")
 
@@ -356,11 +376,13 @@ class RiskManager:
 
     def configure_gate(self, *, cooldown_duration_ms: int = 1_800_000,
                        cooldown_trigger_losses: int = 2,
-                       cooldown_drawdown_pct: float = 50.0) -> None:
+                       cooldown_drawdown_pct: float = 50.0,
+                       cooldown_close_losses: int = 2) -> None:
         """Apply gate configuration (typically from ApexConfig)."""
         self._cooldown_duration_ms = cooldown_duration_ms
         self._cooldown_trigger_losses = cooldown_trigger_losses
         self._cooldown_drawdown_pct = cooldown_drawdown_pct
+        self._cooldown_close_losses = cooldown_close_losses
 
     def clear_safe_mode(self) -> None:
         """Manually clear safe mode (e.g., operator override)."""
@@ -406,11 +428,11 @@ class RiskManager:
             self.state.daily_high_water = ZERO
             self.state.daily_drawdown = ZERO
             self.state.day_start_ms = now_ms
-            if self.state.safe_mode and self.state.safe_mode_reason == "daily_drawdown_breach":
-                self.state.safe_mode = False
-                self.state.safe_mode_reason = ""
-                self.state.rounds_in_safe_mode = 0
-            self.state.reduce_only = False
+            if self.state.safe_mode:
+                log.warning(
+                    "Daily reset preserved safe mode (%s); operator must clear it manually",
+                    self.state.safe_mode_reason or "unknown_reason",
+                )
             self.clear_wallet_blocks()
 
     # ── Per-Wallet Risk ──────────────────────────────────────────────

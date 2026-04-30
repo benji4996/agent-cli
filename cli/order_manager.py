@@ -248,12 +248,43 @@ class OrderManager:
             log.info("Cancelled %d open orders", cancelled)
         return cancelled
 
-    def cancel_all(self) -> int:
-        """Cancel all open orders for the instrument."""
+    def cancel_all(self, max_passes: int = 3) -> int:
+        """Cancel all open orders for the instrument.
+
+        Retries a few times because the exchange view can change while cancels are in
+        flight; a fresh open order can appear between snapshots.
+        """
         if self.dry_run:
             return 0
-        open_orders = self.hl.get_open_orders(self.instrument)
-        return self._cancel_orders(open_orders)
+        total_cancelled = 0
+        attempted_ids: set[str] = set()
+        for _ in range(max(1, int(max_passes))):
+            open_orders = list(self.hl.get_open_orders(self.instrument) or [])
+            if not open_orders:
+                return total_cancelled
+            fresh_orders = []
+            for order in open_orders:
+                oid = (
+                    order.get("oid")
+                    or order.get("id")
+                    or order.get("order_id")
+                    or order.get("client_id")
+                    or ""
+                )
+                if oid and oid not in attempted_ids:
+                    fresh_orders.append(order)
+                    attempted_ids.add(oid)
+            if not fresh_orders:
+                break
+            total_cancelled += self._cancel_orders(fresh_orders)
+        remaining = list(self.hl.get_open_orders(self.instrument) or [])
+        if remaining:
+            log.warning(
+                "Cancel-all reached retry limit with %d open orders still reported for %s",
+                len(remaining),
+                self.instrument,
+            )
+        return total_cancelled
 
     @property
     def stats(self) -> Dict[str, int]:
