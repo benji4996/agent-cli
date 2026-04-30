@@ -5,6 +5,7 @@ repo's venue-agnostic adapter interface.
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
 import time
@@ -63,8 +64,16 @@ class ParadexVenueAdapter(VenueAdapter):
         )
 
     def get_snapshot(self, instrument: str) -> MarketSnapshot:
-        market = self._proxy.get_market_metadata(instrument)
-        summary = self._proxy.get_market_summary(instrument)
+        try:
+            market = self._proxy.get_market_metadata(instrument)
+            summary = self._proxy.get_market_summary(instrument)
+        except (httpx.ReadTimeout, json.JSONDecodeError) as e:
+            log.warning(
+                "Paradex snapshot fetch failed for %s due to transient market-data error; skipping tick: %s",
+                instrument,
+                e,
+            )
+            return MarketSnapshot(instrument=instrument)
         merged = dict(market)
         merged.update(summary)
         bid = self._coerce_float(merged, "best_bid", "bid", "bid_price")

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -59,6 +61,36 @@ def test_get_snapshot_uses_summary_prices():
     assert snap.volume_24h == 3900000.0
     assert snap.open_interest == 12345.0
     assert snap.spread_bps > 0
+
+
+def test_get_snapshot_treats_read_timeout_as_empty_market_data():
+    proxy = FakeProxy()
+
+    def _raise_timeout(instrument: str):
+        raise httpx.ReadTimeout("timed out")
+
+    proxy.get_market_metadata = _raise_timeout
+    adapter = ParadexVenueAdapter(proxy)
+    snap = adapter.get_snapshot("SOL-USD-PERP")
+    assert snap.instrument == "SOL-USD-PERP"
+    assert snap.mid_price == 0.0
+    assert snap.bid == 0.0
+    assert snap.ask == 0.0
+
+
+def test_get_snapshot_treats_bad_gateway_json_decode_as_empty_market_data():
+    proxy = FakeProxy()
+
+    def _raise_bad_gateway(instrument: str):
+        raise json.JSONDecodeError("Expecting value", "", 0)
+
+    proxy.get_market_metadata = _raise_bad_gateway
+    adapter = ParadexVenueAdapter(proxy)
+    snap = adapter.get_snapshot("SOL-USD-PERP")
+    assert snap.instrument == "SOL-USD-PERP"
+    assert snap.mid_price == 0.0
+    assert snap.bid == 0.0
+    assert snap.ask == 0.0
 
 
 def test_capabilities_reports_alo_supported():
