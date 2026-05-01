@@ -42,6 +42,9 @@ class TradingEngine:
         risk_limits: Optional[RiskLimits] = None,
         builder: Optional[dict] = None,
         maker_refresh_interval_s: float = 0.0,
+        close_positions_on_shutdown: bool = True,
+        inventory_alert_qty: float = 0.0,
+        unwind_only: bool = False,
     ):
         self.hl = hl
         self.strategy = strategy
@@ -49,6 +52,10 @@ class TradingEngine:
         self.tick_interval = tick_interval
         self.dry_run = dry_run
         self.builder = builder
+        self.close_positions_on_shutdown = close_positions_on_shutdown
+        self.unwind_only = bool(unwind_only)
+        self.inventory_alert_qty = Decimal(str(inventory_alert_qty)) if inventory_alert_qty else ZERO
+        self._inventory_alert_active = False
 
         # Reuse existing components (no modifications to core)
         self.position_tracker = PositionTracker()
@@ -111,6 +118,14 @@ class TradingEngine:
         log.info("Engine started: strategy=%s instrument=%s tick=%.1fs mode=%s leverage=%sx",
                  self.strategy.strategy_id, self.instrument,
                  self.tick_interval, mode, self.risk_manager.limits.max_leverage)
+
+        if self.unwind_only:
+            log.warning("Unwind-only mode active: cancelling open orders and flattening %s", self.instrument)
+            self.order_manager.cancel_all()
+            self._close_all_positions()
+            self.close_positions_on_shutdown = False
+            self._shutdown()
+            return
 
         while self._running:
             if target_tick_count > 0 and self.tick_count >= target_tick_count:
@@ -192,6 +207,7 @@ class TradingEngine:
                     float(self.risk_manager.state.daily_drawdown / self.risk_manager.limits.tvl)
                     if self.risk_manager.limits.tvl > 0 else 0.0
                 ),
+                "avg_entry_price": float(pos.avg_entry_price),
             },
         )
 
@@ -548,6 +564,19 @@ class TradingEngine:
         )
         log.info(line)
 
+        if self.inventory_alert_qty > ZERO:
+            inventory_abs = abs(pos.net_qty)
+            if inventory_abs > self.inventory_alert_qty and not self._inventory_alert_active:
+                log.warning(
+                    "Inventory alert: |position|=%s %s exceeds threshold %s",
+                    inventory_abs,
+                    self.instrument,
+                    self.inventory_alert_qty,
+                )
+                self._inventory_alert_active = True
+            elif inventory_abs <= self.inventory_alert_qty:
+                self._inventory_alert_active = False
+
     def _preflight_check(self) -> None:
         """Verify account has funds before starting. Warns loudly if not."""
         try:
@@ -656,8 +685,11 @@ class TradingEngine:
         log.info("Shutting down engine...")
         self.order_manager.cancel_all()
 
-        # Close any open positions to avoid orphaned exposure
-        self._close_all_positions()
+        # Optionally close open positions on shutdown
+        if self.close_positions_on_shutdown:
+            self._close_all_positions()
+        else:
+            log.warning("Shutdown configured to leave existing position open")
 
         self._persist_state()
 

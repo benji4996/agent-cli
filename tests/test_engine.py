@@ -143,6 +143,19 @@ class TestTickCycle:
         engine.run(max_ticks=3, resume=False)
         assert engine.tick_count == 3
 
+    def test_run_unwind_only_closes_positions_without_entering_tick_loop(self, monkeypatch):
+        engine = _make_engine(unwind_only=True)
+        engine.dry_run = False
+        calls = {"close": 0, "shutdown": 0, "tick": 0}
+        engine._close_all_positions = lambda: calls.__setitem__("close", calls["close"] + 1)
+        engine._shutdown = lambda: calls.__setitem__("shutdown", calls["shutdown"] + 1)
+        engine._tick = lambda: calls.__setitem__("tick", calls["tick"] + 1)
+        monkeypatch.setattr("signal.signal", lambda *args, **kwargs: None)
+
+        engine.run(max_ticks=0, resume=False)
+
+        assert calls == {"close": 1, "shutdown": 1, "tick": 0}
+
 
 class TestRiskBlock:
     def test_risk_block_skips_execution(self):

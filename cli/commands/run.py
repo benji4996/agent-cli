@@ -282,11 +282,22 @@ def run_cmd(
         risk_limits=cfg.to_risk_limits(),
         builder=builder_info,
         maker_refresh_interval_s=float(cfg.execution.get("maker_refresh_interval_s", 0.0) or 0.0),
+        close_positions_on_shutdown=bool(cfg.execution.get("close_positions_on_shutdown", True)),
+        inventory_alert_qty=float(cfg.execution.get("inventory_alert_qty", 0.0) or 0.0),
+        unwind_only=bool(cfg.execution.get("unwind_only", False)),
     )
 
     # Attach markout tracker if protection is enabled
     if markout_tracker is not None:
         engine.markout_tracker = markout_tracker
+
+    if not bool(cfg.execution.get("close_positions_on_shutdown", True)):
+        typer.echo("Shutdown close: disabled")
+    if bool(cfg.execution.get("unwind_only", False)):
+        typer.echo("Execution: unwind-only mode enabled")
+    inventory_alert_qty = float(cfg.execution.get("inventory_alert_qty", 0.0) or 0.0)
+    if inventory_alert_qty > 0:
+        typer.echo(f"Inventory alert threshold: {inventory_alert_qty}")
 
     # Optional Risk Guardian gate tuning
     if cfg.risk_gate:
@@ -294,12 +305,14 @@ def run_cmd(
             cooldown_duration_ms=int(cfg.risk_gate.get("cooldown_duration_ms", 1_800_000)),
             cooldown_trigger_losses=int(cfg.risk_gate.get("cooldown_trigger_losses", 2)),
             cooldown_drawdown_pct=float(cfg.risk_gate.get("cooldown_drawdown_pct", 50.0)),
+            cooldown_close_losses=int(cfg.risk_gate.get("cooldown_close_losses", 2)),
         )
         typer.echo(
             "Risk gate: "
             f"losses={int(cfg.risk_gate.get('cooldown_trigger_losses', 2))}, "
             f"cooldown_ms={int(cfg.risk_gate.get('cooldown_duration_ms', 1_800_000))}, "
-            f"drawdown_pct={float(cfg.risk_gate.get('cooldown_drawdown_pct', 50.0))}"
+            f"drawdown_pct={float(cfg.risk_gate.get('cooldown_drawdown_pct', 50.0))}, "
+            f"close_losses={int(cfg.risk_gate.get('cooldown_close_losses', 2))}"
         )
 
     # Attach Guard if configured
